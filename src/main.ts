@@ -313,18 +313,18 @@ embedBtn.addEventListener('click', async () => {
     stegoBuffer  = encode(decoded, result.modifiedCoeffs, origBuffer);
     stegoDecoded = decode(stegoBuffer);
 
-    // Round-trip fidelity check
+    // Round-trip fidelity check: compare intended modifications vs re-decoded
     let mismatch = 0;
-    for (let bi = 0; bi < decoded.dctCoeffs.length; bi++) {
+    for (let bi = 0; bi < result.modifiedCoeffs.length; bi++) {
       for (let zi = 0; zi < 64; zi++) {
-        if (decoded.dctCoeffs[bi][zi] !== stegoDecoded.dctCoeffs[bi][zi]) mismatch++;
+        if (result.modifiedCoeffs[bi][zi] !== stegoDecoded.dctCoeffs[bi][zi]) mismatch++;
       }
     }
-    const fidelityNote = mismatch <= result.carriersUsed
-      ? `Round-trip OK (${mismatch} intentional changes).`
-      : `⚠ Round-trip check: ${mismatch} differences (expected ≤${result.carriersUsed}).`;
+    const fidelityNote = mismatch === 0
+      ? `Round-trip OK (${result.changesCount} coefficient changes, distortion ${result.totalDistortion.toFixed(2)}).`
+      : `⚠ Round-trip: ${mismatch} unexpected differences.`;
 
-    showAlert(embedStatus, `✓ Embedded! ${result.carriersUsed} carriers used, ${result.actualRate.toFixed(3)} bpnzac actual. ${fidelityNote}`, 'success');
+    showAlert(embedStatus, `✓ Embedded via STC! ${result.carriersUsed} carriers, ${result.changesCount} changes, ${result.actualRate.toFixed(3)} bpnzac. ${fidelityNote}`, 'success');
 
     downloadBtn.disabled = false;
 

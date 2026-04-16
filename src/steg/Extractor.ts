@@ -1,63 +1,38 @@
 /**
- * Extractor — J-UNIWARD payload extraction
+ * Extractor — J-UNIWARD payload extraction via Syndrome-Trellis Codes
  *
- * Reverses the Hamming(7,4) syndrome embedding performed by Embedder.ts.
- * Using the same key-derived carrier ordering, reads the syndrome of every
- * group of 7 carriers to recover 3 message bits per group.
+ * Reverses the STC embedding performed by Embedder.ts.
+ * Phase 1: Reads the 24-bit sideband header (direct LSB) to recover n
+ *          (number of STC carriers).
+ * Phase 2: Uses stcExtract on exactly n carriers to recover H · y mod 2 = msg.
  */
 
-import { sha3_256 as sha3 } from 'js-sha3';
-import { selectCarriers, countNZAC, type Carrier } from './Embedder.ts';
+import {
+  selectCarriers,
+  keyToSeed,
+  shuffleIndices,
+  expandPRNG,
+  stcExtract,
+} from './Embedder.ts';
 
-// Re-import shuffle helper (copy to avoid circular deps)
-function keyToSeed(key: string): Uint8Array {
-  return new Uint8Array(sha3.arrayBuffer(key));
-}
+/** Constraint height — must match Embedder.ts */
+const STC_H = 10;
 
-function shuffleIndices(n: number, seedBytes: Uint8Array): Uint32Array {
-  const idx = new Uint32Array(n);
-  for (let i = 0; i < n; i++) idx[i] = i;
+/** Number of carriers reserved for the sideband n-header */
+const HEADER_CARRIERS = 24;
 
-  const needed = n * 4;
-  const blocks = Math.ceil(needed / 32);
-  const rngBytes = new Uint8Array(blocks * 32);
-  for (let b = 0; b < blocks; b++) {
-    const counterBuf = new Uint8Array(seedBytes.length + 4);
-    counterBuf.set(seedBytes);
-    counterBuf[seedBytes.length]     = (b >> 24) & 0xff;
-    counterBuf[seedBytes.length + 1] = (b >> 16) & 0xff;
-    counterBuf[seedBytes.length + 2] = (b >>  8) & 0xff;
-    counterBuf[seedBytes.length + 3] =  b        & 0xff;
-    const h = new Uint8Array(sha3.arrayBuffer(counterBuf));
-    rngBytes.set(h, b * 32);
+/** Regenerate the same submatrix used during embedding */
+function generateSubmatrix(seed: Uint8Array): Uint32Array {
+  const cols = STC_H + 1;
+  const subH = new Uint32Array(cols);
+  const rng = expandPRNG(seed, cols * 4);
+
+  for (let c = 0; c < cols; c++) {
+    const off = c * 4;
+    const r = rng[off] | (rng[off+1] << 8) | (rng[off+2] << 16) | (rng[off+3] << 24);
+    subH[c] = (r & ((1 << STC_H) - 1)) || 1;
   }
-
-  for (let i = n - 1; i > 0; i--) {
-    const off = i * 4;
-    const r = (rngBytes[off] | (rngBytes[off+1] << 8) |
-               (rngBytes[off+2] << 16) | ((rngBytes[off+3] & 0x7f) << 24));
-    const j = r % (i + 1);
-    const tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
-  }
-  return idx;
-}
-
-const H_MAT: readonly number[][] = [
-  [1, 0, 1, 0, 1, 0, 1],
-  [0, 1, 1, 0, 0, 1, 1],
-  [0, 0, 0, 1, 1, 1, 1],
-];
-
-function syndrome(carriers: number[]): number {
-  let s = 0;
-  for (let row = 0; row < 3; row++) {
-    let bit = 0;
-    for (let col = 0; col < 7; col++) {
-      bit ^= H_MAT[row][col] & carriers[col];
-    }
-    s = (s << 1) | (bit & 1);
-  }
-  return s;
+  return subH;
 }
 
 export interface ExtractResult {
@@ -71,9 +46,9 @@ export interface ExtractResult {
  *
  * @param dctCoeffs   Luma DCT blocks of the stego JPEG
  * @param quantTable  Luma quantization table (zigzag order)
- * @param costs       Cost matrix from the SAME cover image (used for carrier selection)
+ * @param costs       Cost matrix from the stego image (used for carrier selection)
  * @param key         Shared secret key (must match embed key)
- * @param maxBytes    Maximum bytes to extract (e.g., known payload size bound)
+ * @param maxBytes    Maximum bytes to extract (safety bound)
  */
 export function extract(
   dctCoeffs: Int16Array[],
@@ -82,63 +57,89 @@ export function extract(
   key: string,
   maxBytes: number = 65536,
 ): ExtractResult {
-  const carriers = selectCarriers(dctCoeffs, quantTable, costs);
+  const allCarriers = selectCarriers(dctCoeffs, quantTable, costs);
 
-  // Use 2× pool to match embed behaviour
-  const maxGroupsNeeded = Math.ceil((maxBytes + 4) * 8 / 3);
-  const maxCarriersNeeded = maxGroupsNeeded * 7;
+  if (allCarriers.length <= HEADER_CARRIERS) {
+    throw new Error('Image too small for extraction.');
+  }
 
+  // Reconstruct the same carrier permutation used during embedding
   const seed = keyToSeed(`embed:${key}`);
-  const pool = carriers.slice(0, Math.min(maxCarriersNeeded * 2, carriers.length));
-  const shuffled = shuffleIndices(pool.length, seed);
-  const orderedPool = Array.from(shuffled).map(i => pool[i]);
-  const usedCarriers = orderedPool.slice(0, maxCarriersNeeded);
+  const shuffled = shuffleIndices(allCarriers.length, seed);
+  const permuted = Array.from(shuffled).map(i => allCarriers[i]);
 
-  const bits: number[] = [];
-
-  // Read syndromes to extract bits
-  const totalGroups = Math.floor(usedCarriers.length / 7);
-  for (let g = 0; g < totalGroups; g++) {
-    const groupCarriers = usedCarriers.slice(g * 7, g * 7 + 7);
-    const lsbs = groupCarriers.map(c => {
-      const v = dctCoeffs[c.blockIdx][c.zzIdx];
-      return ((v < 0 ? -v : v) & 1);
-    });
-    const s = syndrome(lsbs);
-    // Extract 3 bits from syndrome (MSB first)
-    bits.push((s >> 2) & 1, (s >> 1) & 1, s & 1);
-
-    // Once we have at least 32 bits (4-byte header), decode length
-    if (bits.length >= 32 && bits.length % 24 === 8) {
-      // Try to decode the length prefix after each byte
-      const headerBits = bits.slice(0, 32);
-      let msgLen = 0;
-      for (let i = 0; i < 32; i++) msgLen = (msgLen * 2) + headerBits[i];
-      if (msgLen > 0 && msgLen <= maxBytes) {
-        const totalBitsNeeded = 32 + msgLen * 8;
-        if (bits.length >= totalBitsNeeded) {
-          // Have enough bits — decode
-          return decodeBits(bits, msgLen, usedCarriers.slice(0, (g + 1) * 7).length);
-        }
-      }
-    }
+  // ── Phase 1: Read n from the first HEADER_CARRIERS carriers (direct LSB) ──
+  let n = 0;
+  for (let i = 0; i < HEADER_CARRIERS; i++) {
+    const c = permuted[i];
+    const v = dctCoeffs[c.blockIdx][c.zzIdx];
+    const bit = (Math.abs(v)) & 1;
+    n = (n << 1) | bit;
   }
 
-  // Decode whatever we have
-  if (bits.length >= 32) {
-    const headerBits = bits.slice(0, 32);
-    let msgLen = 0;
-    for (let i = 0; i < 32; i++) msgLen = (msgLen * 2) + headerBits[i];
-    if (msgLen > 0 && msgLen <= maxBytes && bits.length >= 32 + msgLen * 8) {
-      return decodeBits(bits, msgLen, usedCarriers.length);
-    }
+  if (n <= 0 || n > allCarriers.length - HEADER_CARRIERS) {
+    throw new Error('Extraction failed: invalid carrier count in header. Check key and ensure this is a stego JPEG.');
   }
 
-  throw new Error('Extraction failed: no valid payload found. Check key and ensure this is a stego JPEG.');
-}
+  // ── Phase 2: STC extraction on carriers[HEADER_CARRIERS .. +n) ─────────────
+  const stcCarriers = permuted.slice(HEADER_CARRIERS, HEADER_CARRIERS + n);
+  const stegoLSBs = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const c = stcCarriers[i];
+    const v = dctCoeffs[c.blockIdx][c.zzIdx];
+    stegoLSBs[i] = (Math.abs(v)) & 1;
+  }
 
-function decodeBits(bits: number[], msgLen: number, carriersRead: number): ExtractResult {
-  const msgBits = bits.slice(32, 32 + msgLen * 8);
+  // Reconstruct the STC submatrix
+  const subSeed = keyToSeed(`stc-sub:${key}`);
+  const subH = generateSubmatrix(subSeed);
+
+  // The message length m: we need to determine it from the payload header.
+  // The payload format is: [4-byte msgLen big-endian] [message bytes]
+  // So m = (4 + msgLen) * 8.  But we don't know msgLen yet.
+  //
+  // Strategy: try to extract just the 32-bit header first.  Since
+  // m must divide evenly into the trellis mapping with n carriers,
+  // we do a two-pass approach:
+  //   Pass 1: extract with m = 32 to get msgLen
+  //   Pass 2: extract with m = (4 + msgLen) * 8 to get full payload
+
+  // Pass 1: extract header
+  if (n < 32) {
+    throw new Error('Extraction failed: not enough carriers for header.');
+  }
+
+  // For pass 1, we need the STC to map n carriers → 32 message bits
+  const headerBits = stcExtract(stegoLSBs, 32, subH);
+
+  let msgLen = 0;
+  for (let i = 0; i < 32; i++) {
+    msgLen = (msgLen << 1) | headerBits[i];
+  }
+
+  if (msgLen <= 0 || msgLen > maxBytes) {
+    throw new Error('Extraction failed: invalid message length. Check key and ensure this is a stego JPEG.');
+  }
+
+  // Pass 2: extract full payload with correct m
+  const fullM = (4 + msgLen) * 8;
+  if (fullM > n) {
+    throw new Error(`Extraction failed: payload requires ${fullM} bits but only ${n} carriers.`);
+  }
+
+  const fullBits = stcExtract(stegoLSBs, fullM, subH);
+
+  // Verify header consistency
+  let verifyLen = 0;
+  for (let i = 0; i < 32; i++) {
+    verifyLen = (verifyLen << 1) | fullBits[i];
+  }
+  if (verifyLen !== msgLen) {
+    throw new Error('Extraction failed: inconsistent header after full extraction.');
+  }
+
+  // Decode message bytes
+  const msgBits = fullBits.subarray(32, 32 + msgLen * 8);
   const bytes = new Uint8Array(msgLen);
   for (let i = 0; i < msgLen; i++) {
     let byte = 0;
@@ -151,5 +152,9 @@ function decodeBits(bits: number[], msgLen: number, carriersRead: number): Extra
   const decoder = new TextDecoder('utf-8', { fatal: false });
   const message = decoder.decode(bytes);
 
-  return { message, bytesRecovered: msgLen, carriersRead };
+  return {
+    message,
+    bytesRecovered: msgLen,
+    carriersRead: HEADER_CARRIERS + n,
+  };
 }

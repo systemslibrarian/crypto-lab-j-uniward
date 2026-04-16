@@ -307,11 +307,11 @@ export function runAnalysis(
     lsb: {
       name: 'LSB (spatial)',
       dctHist: lsbHistOrig,
-      chiSq: lsbChiSq.chiSq * 10, // LSB in spatial: amplify for display
-      pValue: Math.max(0, lsbChiSq.pValue - 0.8), // typically near-zero
+      chiSq: lsbChiSq.chiSq,
+      pValue: lsbChiSq.pValue,
       changesCount: lsbChanges,
-      totalCoeffs,
-      label: 'Trivially Detectable',
+      totalCoeffs: origPixels.length,
+      label: detectabilityLabel(0.0001, lsbChanges, origPixels.length),
     },
     f5: {
       name: 'F5 (DCT sequential)',

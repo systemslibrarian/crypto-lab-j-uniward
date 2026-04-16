@@ -83,10 +83,11 @@
             <div class="panel-body">
 
               <div class="alert alert-info" style="font-size:0.8rem; margin-bottom:0.75rem;">
-                <strong>Algorithm note:</strong> Embedding uses Hamming (7,4) syndrome coding
-                (3 bits per 7 carriers). Full STC would achieve ≈1 bit per carrier; Hamming
-                gives ≈0.43 bpc — uses more coefficients but remains adaptive and
-                detection-resistant at low payloads.
+                <strong>Algorithm:</strong> Full Syndrome-Trellis Code (STC) embedding
+                with Viterbi-optimal search (h=10, 1024 states). The STC finds the
+                minimum-distortion change vector, achieving near-optimal ~1 bit per
+                carrier efficiency — following the Filler, Judas &amp; Fridrich (2011)
+                framework.
               </div>
 
               <div class="tabs" role="tablist" aria-label="Embed or Extract mode">

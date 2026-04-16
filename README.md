@@ -2,9 +2,9 @@
 
 ## What It Is
 
-Browser-native implementation of J-UNIWARD (JPEG Universal Wavelet Relative Distortion) — the academic gold standard for adaptive JPEG steganography. Implements the full pipeline from the 2013 Holub & Fridrich paper: Daubechies-8 three-level wavelet decomposition, per-coefficient distortion cost assignment, and Syndrome-Trellis Code payload embedding. Includes a three-way steganalysis comparison against LSB and F5 to demonstrate exactly why adaptive methods resist detection. No backends. No simulated math.
+Browser-native implementation of J-UNIWARD (JPEG Universal Wavelet Relative Distortion) — the academic gold standard for adaptive JPEG steganography. Implements the full pipeline from the 2013 Holub & Fridrich paper: Daubechies-8 three-level wavelet decomposition, per-coefficient distortion cost assignment, and Syndrome-Trellis Code (STC) payload embedding via Viterbi-optimal search (Filler, Judas & Fridrich 2011). Includes a three-way steganalysis comparison against LSB and F5 to demonstrate exactly why adaptive methods resist detection. No backends. No simulated math.
 
-> **Algorithm note:** Embedding uses Hamming (7,4) syndrome coding (3 bits per 7 carriers) as an STC approximation. Full STC would achieve ~1 bit per carrier; Hamming gives ~0.43 bits per carrier — more coefficients used per bit, but adaptive cost ordering preserves J-UNIWARD's detection resistance at low and moderate payloads. The README and UI display this tradeoff explicitly.
+> **Algorithm note:** Embedding uses full Syndrome-Trellis Codes with constraint height h=10 (1024 trellis states). The Viterbi algorithm finds the minimum-distortion change vector, achieving near-optimal embedding efficiency (~1 bit per carrier). The parity-check matrix is constructed by tiling a key-derived random h×(h+1) submatrix along the diagonal, following the Filler-Judas-Fridrich framework.
 
 ## When to Use It
 
@@ -33,7 +33,7 @@ No environment variables required.
 
 ## Part of the Crypto-Lab Suite
 
-One of 35+ live browser demos at [systemslibrarian.github.io/crypto-lab](https://systemslibrarian.github.io/crypto-lab/) — spanning Atbash (600 BCE) through NIST FIPS 203/204/205 (2024).
+One of 60+ live browser demos at [systemslibrarian.github.io/crypto-lab](https://systemslibrarian.github.io/crypto-lab/) — spanning Atbash (600 BCE) through NIST FIPS 203/204/205 (2024).
 
 ---
 
