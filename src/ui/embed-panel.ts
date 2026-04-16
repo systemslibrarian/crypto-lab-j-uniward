@@ -208,7 +208,7 @@ embedBtn.addEventListener('click', async () => {
       state.decoded.width, state.decoded.height,
     );
     diffLabel.textContent = avgDiff < 0.5
-      ? 'Pixel difference (10× amplified) — Imperceptible to human vision ✓'
+      ? 'Pixel difference (10× amplified) — visually indistinguishable at this rate'
       : 'Pixel difference (10× amplified)';
 
     // Run steganalysis

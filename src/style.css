@@ -441,7 +441,6 @@ main {
   max-height: 280px;
   width: auto;
   height: auto;
-  object-fit: contain;
   border-radius: 4px;
 }
 .overlay-canvas {
@@ -967,10 +966,6 @@ input[type='range'] { width: 100%; accent-color: var(--input-focus); }
   gap: var(--space-lg);
 }
 
-@media (max-width: 768px) {
-  .info-grid { grid-template-columns: 1fr; }
-}
-
 .info-card {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
@@ -1037,11 +1032,7 @@ footer .scripture {
 }
 :focus:not(:focus-visible) { outline: none; }
 
-/* Ensure text meets WCAG AA contrast in both themes */
-[data-theme='dark']  { --text-primary-min-contrast: #c9d1d9; }
-[data-theme='light'] { --text-primary-min-contrast: #24292f; }
-
-/* Touch targets — ensure 44×44 minimum for all interactive elements */
+/* Touch targets — ensure 44x44 minimum for all interactive elements */
 button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .preset-btn, .tab-btn {
   min-height: 44px;
   min-width: 44px;
@@ -1062,6 +1053,7 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
   .bar-row { flex-wrap: wrap; }
   .bar-badge { min-width: auto; }
   .summary-grid { grid-template-columns: 1fr; }
+  .info-grid { grid-template-columns: 1fr; }
 }
 
 /* ── Phone ──────────────────────────────────────────────────────────────── */

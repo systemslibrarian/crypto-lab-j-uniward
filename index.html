@@ -37,12 +37,12 @@
       <section class="hero" aria-labelledby="hero-title">
         <h1 id="hero-title">J-UNIWARD Steganography Lab</h1>
         <p class="hero-subtitle">
-          Adaptive JPEG steganography that minimizes detectability by embedding in
-          perceptually complex regions.
+          Adaptive JPEG steganography that reduces statistical detectability by
+          concentrating changes in perceptually complex regions.
         </p>
         <p class="hero-description">
           Compare J-UNIWARD against naive methods like LSB and F5. See how adaptive
-          placement reduces statistical detectability — all computed locally in your browser.
+          placement improves resistance under included statistical tests — all computed locally in your browser.
         </p>
         <button id="quick-demo-btn" class="btn btn-accent btn-lg">
           ▶ Quick Demo
@@ -110,7 +110,7 @@
 
               <div class="image-wrap">
                 <canvas id="cover-canvas" role="img" aria-label="Cover image preview"></canvas>
-                <canvas id="heatmap-canvas" role="img" aria-label="J-UNIWARD cost heatmap" class="overlay-canvas" style="display:none;"></canvas>
+                <canvas id="heatmap-canvas" role="img" aria-label="J-UNIWARD cost heatmap" class="overlay-canvas hidden"></canvas>
               </div>
 
               <div id="heatmap-toggle-row" class="toggle-row hidden">

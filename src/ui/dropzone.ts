@@ -48,7 +48,7 @@ export async function loadImage(file: File): Promise<void> {
     resetEmbedState();
 
     drawImageOnCanvas(coverCanvas, state.decoded.pixels, state.decoded.width, state.decoded.height);
-    heatmapCanvas.style.display = 'none';
+    heatmapCanvas.classList.add('hidden');
     postEmbed.classList.add('hidden');
 
     const nzac = countNZAC(state.decoded.dctCoeffs);
@@ -138,9 +138,9 @@ heatmapCb.addEventListener('change', () => {
     );
     heatmapCanvas.style.width  = coverCanvas.width  + 'px';
     heatmapCanvas.style.height = coverCanvas.height + 'px';
-    heatmapCanvas.style.display = 'block';
+    heatmapCanvas.classList.remove('hidden');
   } else {
-    heatmapCanvas.style.display = 'none';
+    heatmapCanvas.classList.add('hidden');
   }
 });
 
