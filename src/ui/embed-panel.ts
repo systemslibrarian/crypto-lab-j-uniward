@@ -3,7 +3,7 @@
  */
 
 import { state, resetEmbedState } from '../state/app-state.ts';
-import { embed, countNZAC } from '../steg/Embedder.ts';
+import { embed, countNZAC, capacityBytes } from '../steg/Embedder.ts';
 import { encode, decode } from '../codec/JpegCodec.ts';
 import { drawImageOnCanvas, renderDiffMap, showAlert } from './renderers.ts';
 import { runAnalysis, renderChangesHeatmap } from '../analysis/StegAnalysis.ts';
@@ -33,6 +33,13 @@ const copyMsgBtn    = document.getElementById('copy-extracted') as HTMLButtonEle
 const changesCanvas = document.getElementById('changes-canvas') as HTMLCanvasElement;
 const analysisSlider = document.getElementById('analysis-payload-slider') as HTMLInputElement;
 const analysisDisplay= document.getElementById('analysis-payload-display')!;
+
+const DEMO_RATES = ['0.10', '0.20', '0.40'] as const;
+const DEMO_MESSAGES = [
+  'J-UNIWARD demo.',
+  'Adaptive hiding demo.',
+  'Hi.',
+] as const;
 
 // ─── Payload presets ─────────────────────────────────────────────────────────
 
@@ -281,9 +288,29 @@ copyMsgBtn?.addEventListener('click', () => {
 // ─── Quick Demo ──────────────────────────────────────────────────────────────
 
 export function prefillForDemo(): void {
-  msgInput.value = 'Hello from J-UNIWARD — adaptive steganography in action.';
+  let demoMessage: string = DEMO_MESSAGES[0];
+  let demoRate: string = DEMO_RATES[0];
+
+  if (state.decoded) {
+    const nzac = countNZAC(state.decoded.dctCoeffs);
+
+    outer:
+    for (const message of DEMO_MESSAGES) {
+      const messageBytes = new TextEncoder().encode(message).length;
+      for (const rate of DEMO_RATES) {
+        const availableBytes = capacityBytes(nzac, Number(rate)) - 20;
+        if (messageBytes <= availableBytes) {
+          demoMessage = message;
+          demoRate = rate;
+          break outer;
+        }
+      }
+    }
+  }
+
+  msgInput.value = demoMessage;
   keyInput.value = 'demo-key-2024';
-  rateSlider.value = '0.10';
+  rateSlider.value = demoRate;
   rateSlider.dispatchEvent(new Event('input'));
   updateCharCount();
 }
