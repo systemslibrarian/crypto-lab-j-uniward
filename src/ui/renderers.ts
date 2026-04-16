@@ -12,11 +12,8 @@ export function drawImageOnCanvas(
   canvas.width  = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d')!;
-  const pixels = imageData instanceof Uint8ClampedArray
-    ? imageData
-    : new Uint8ClampedArray(imageData);
   const imgData = new ImageData(
-    new Uint8ClampedArray(pixels.buffer.slice(0) as ArrayBuffer), w, h,
+    new Uint8ClampedArray(imageData), w, h,
   );
   ctx.putImageData(imgData, 0, 0);
 }

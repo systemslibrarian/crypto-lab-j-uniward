@@ -84,22 +84,24 @@ export async function loadImage(file: File): Promise<void> {
       suitability.innerHTML = '<span class="badge badge-safe">Good carrier</span> <span class="text-muted">Rich texture — ideal for adaptive embedding</span>';
     }
 
-    // Compute wavelet costs
-    showAlert(imageInfo, '⏳ Computing J-UNIWARD distortion cost map…', 'info');
+    // Compute wavelet costs — use a separate status element so image info is not overwritten
+    const costStatus = document.createElement('div');
+    costStatus.className = 'alert alert-info';
+    costStatus.textContent = '⏳ Computing J-UNIWARD distortion cost map…';
+    imageInfo.appendChild(costStatus);
     await new Promise(r => setTimeout(r, 10));
 
     const bW = state.decoded.lumaBlocksWide;
     const bH = state.decoded.lumaBlocksHigh;
     state.costs = computeCostMatrix(state.decoded.lumaPixels, state.decoded.quantTable, bW, bH);
 
-    imageInfo.lastElementChild?.remove();
+    costStatus.remove();
     embedBtn.disabled = false;
 
-    showAlert(
-      imageInfo,
-      `Image loaded. Cost map ready. (${file.name}, ${Math.round(file.size / 1024)} KB)`,
-      'success',
-    );
+    const doneStatus = document.createElement('div');
+    doneStatus.className = 'alert alert-success';
+    doneStatus.textContent = `Image loaded. Cost map ready. (${file.name}, ${Math.round(file.size / 1024)} KB)`;
+    imageInfo.appendChild(doneStatus);
 
     heatmapRow.classList.remove('hidden');
     onImageLoaded?.();

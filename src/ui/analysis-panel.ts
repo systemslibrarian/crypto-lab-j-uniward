@@ -13,8 +13,6 @@ const analysisDisplay  = document.getElementById('analysis-payload-display')!;
 const methodTabs       = document.querySelectorAll<HTMLButtonElement>('.method-tab');
 const statsContainer   = document.getElementById('stats-container')!;
 const rateSlider       = document.getElementById('rate-slider') as HTMLInputElement;
-const rateDisplay      = document.getElementById('rate-display')!;
-const rateWarning      = document.getElementById('rate-warning')!;
 const explainerPanel   = document.getElementById('analysis-explainer')!;
 
 // ─── Analysis payload slider ─────────────────────────────────────────────────
@@ -23,8 +21,7 @@ analysisSlider.addEventListener('input', () => {
   const v = parseFloat(analysisSlider.value);
   analysisDisplay.textContent = v.toFixed(2) + ' bpnzac';
   rateSlider.value = String(v);
-  rateDisplay.textContent = v.toFixed(2) + ' bpnzac';
-  rateWarning.classList.toggle('hidden', v <= 0.3);
+  rateSlider.dispatchEvent(new Event('input'));
 });
 
 // ─── Method tabs ─────────────────────────────────────────────────────────────

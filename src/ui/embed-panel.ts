@@ -2,7 +2,7 @@
  * embed-panel.ts — Panel B embed tab: message input, rate slider, embed action
  */
 
-import { state } from '../state/app-state.ts';
+import { state, resetEmbedState } from '../state/app-state.ts';
 import { embed, countNZAC } from '../steg/Embedder.ts';
 import { encode, decode } from '../codec/JpegCodec.ts';
 import { drawImageOnCanvas, renderDiffMap, showAlert } from './renderers.ts';
@@ -64,6 +64,7 @@ function updateCharCount(): void {
     const cap  = Math.floor((nzac * rate) / 8) - 20; // subtract header + HMAC
     if (bytes > cap) {
       capacityWarn.textContent = `⚠ Message exceeds capacity (${cap} bytes at current rate)`;
+      capacityWarn.className = 'alert alert-error';
       capacityWarn.classList.remove('hidden');
     } else if (bytes > cap * 0.8) {
       capacityWarn.textContent = `Approaching capacity limit (${cap} bytes)`;
@@ -251,6 +252,7 @@ downloadBtn.addEventListener('click', () => {
 // ─── Reset session ───────────────────────────────────────────────────────────
 
 resetBtn?.addEventListener('click', () => {
+  resetEmbedState();
   msgInput.value = '';
   keyInput.value = '';
   rateSlider.value = '0.10';
@@ -260,14 +262,17 @@ resetBtn?.addEventListener('click', () => {
   summaryCard.classList.add('hidden');
   capacityWarn.classList.add('hidden');
   updateCharCount();
+  updateAnalysisPanel(state.activeMethod);
 });
 
 // ─── Copy extracted message ──────────────────────────────────────────────────
 
 copyMsgBtn?.addEventListener('click', () => {
   const output = document.getElementById('extract-output');
-  if (output?.textContent) {
-    navigator.clipboard.writeText(output.textContent);
+  const codeEl = output?.querySelector<HTMLElement>('.extract-msg');
+  const text = codeEl?.textContent ?? output?.textContent ?? '';
+  if (text) {
+    navigator.clipboard.writeText(text);
     copyMsgBtn.textContent = '✓ Copied';
     setTimeout(() => { copyMsgBtn.textContent = '📋 Copy'; }, 1500);
   }
