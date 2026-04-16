@@ -54,7 +54,7 @@ applyTheme(document.documentElement.getAttribute('data-theme') ?? 'dark');
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let decoded:       JpegDecoded | null = null;
-let costs:         Float32Array[] | null = null;
+let costs:         Float64Array[] | null = null;
 let origBuffer:    ArrayBuffer | null = null;
 let stegoBuffer:   ArrayBuffer | null = null;
 let stegoDecoded:  JpegDecoded | null = null;
@@ -464,7 +464,7 @@ downloadBtn.addEventListener('click', () => {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `stego-${Date.now()}.jpg`;
+  a.download = `stego.jpg`;
   a.click();
   URL.revokeObjectURL(url);
 });

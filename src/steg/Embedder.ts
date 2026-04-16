@@ -24,20 +24,15 @@ export interface Carrier {
  * DC (zigzag index 0) is NEVER included — assert this.
  */
 export function selectCarriers(
-  dctCoeffs: Int16Array[],
-  quantTable: Uint16Array,
-  costs: Float32Array[],
+  costs: Float64Array[],
 ): Carrier[] {
   const carriers: Carrier[] = [];
 
-  for (let bi = 0; bi < dctCoeffs.length; bi++) {
-    const block = dctCoeffs[bi];
+  for (let bi = 0; bi < costs.length; bi++) {
     const blockCosts = costs[bi];
     for (let zi = 1; zi < 64; zi++) { // skip DC (zi=0)
       const cost = blockCosts[zi];
       if (!isFinite(cost) || cost >= 1e7) continue; // wet cost
-      const q = quantTable[zi];
-      if (block[zi] === 0 && q > 4) continue;       // wet: zero + coarse quant
       carriers.push({ blockIdx: bi, zzIdx: zi, cost });
     }
   }
@@ -93,7 +88,7 @@ export interface EmbedResult {
 export async function embed(
   dctCoeffs: Int16Array[],
   quantTable: Uint16Array,
-  costs: Float32Array[],
+  costs: Float64Array[],
   message: string,
   passphrase: string,
   rate: number,
@@ -118,7 +113,7 @@ export async function embed(
   }
 
   const nzac = countNZAC(dctCoeffs);
-  const allCarriers = selectCarriers(dctCoeffs, quantTable, costs);
+  const allCarriers = selectCarriers(costs);
 
   const m = payloadBits.length;
   const STC_H = 12;
@@ -130,6 +125,7 @@ export async function embed(
 
   // Carriers needed: w = ceil(H / rate), blocks = mPadded/H, total = blocks * w
   const w = Math.ceil(STC_H / rate);
+  if (w <= STC_H) throw new RangeError(`w=${w} must exceed H=${STC_H}`);
   const numBlocks = mPadded / STC_H;
   const carriersNeeded = numBlocks * w;
 

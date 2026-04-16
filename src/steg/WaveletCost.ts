@@ -170,7 +170,7 @@ for (let k = 0; k < 8; k++)
 
 // ─── J-UNIWARD cost matrix ────────────────────────────────────────────────────
 
-const SIGMA = Math.pow(2, -6); // 0.015625 — wet cost floor
+const SIGMA = 1e-6; // stabilization constant (Holub & Fridrich 2012)
 
 /**
  * Compute J-UNIWARD distortion cost ρ for every DCT coefficient.
@@ -179,7 +179,7 @@ const SIGMA = Math.pow(2, -6); // 0.015625 — wet cost floor
  * @param quantTable  Luma quantization table (Uint16Array, 64 values, zigzag)
  * @param blocksWide  Number of 8×8 blocks per row
  * @param blocksHigh  Number of 8×8 block rows
- * @returns           Array of length blockCount, each a Float32Array(64) of costs
+ * @returns           Array of length blockCount, each a Float64Array(64) of costs
  *                    in zigzag order.  Wet cost = 1e8 (effectively infinity).
  */
 export function computeCostMatrix(
@@ -187,7 +187,7 @@ export function computeCostMatrix(
   quantTable: Uint16Array,
   blocksWide: number,
   blocksHigh: number,
-): Float32Array[] {
+): Float64Array[] {
   const blockCount = blocksWide * blocksHigh;
   const rows = blocksHigh * 8;
   const cols = blocksWide * 8;
@@ -199,26 +199,8 @@ export function computeCostMatrix(
   // Cover wavelet subbands
   const coverSub = wavelet3Level(img, rows, cols);
 
-  // Precompute 1/( |W_k(cover)| + σ ) for each subband in flat arrays
-  const subbands = [
-    { w: coverSub.LH1, sw: coverSub.sw1, sh: coverSub.sh1 },
-    { w: coverSub.HL1, sw: coverSub.sw1, sh: coverSub.sh1 },
-    { w: coverSub.HH1, sw: coverSub.sw1, sh: coverSub.sh1 },
-    { w: coverSub.LH2, sw: coverSub.sw2, sh: coverSub.sh2 },
-    { w: coverSub.HL2, sw: coverSub.sw2, sh: coverSub.sh2 },
-    { w: coverSub.HH2, sw: coverSub.sw2, sh: coverSub.sh2 },
-    { w: coverSub.LH3, sw: coverSub.sw3, sh: coverSub.sh3 },
-    { w: coverSub.HL3, sw: coverSub.sw3, sh: coverSub.sh3 },
-    { w: coverSub.HH3, sw: coverSub.sw3, sh: coverSub.sh3 },
-  ];
-  const invDenom = subbands.map(sb => {
-    const arr = new Float64Array(sb.w.length);
-    for (let i = 0; i < arr.length; i++) arr[i] = 1.0 / (Math.abs(sb.w[i]) + SIGMA);
-    return arr;
-  });
-
   // Output cost arrays
-  const costs: Float32Array[] = Array.from({ length: blockCount }, () => new Float32Array(64));
+  const costs: Float64Array[] = Array.from({ length: blockCount }, () => new Float64Array(64));
 
   // For each block and each DCT coefficient compute cost
   // We use the linearity of the wavelet transform:
@@ -298,10 +280,9 @@ export function computeCostMatrix(
           coverPatchSub.LH3, coverPatchSub.HL3, coverPatchSub.HH3,
         ];
 
-        // Compute cost: Σ_n Σ_{r,c in patch} |ΔW_n| / (|W_n_cover| + σ)
-        // We use the PATCH-local subband values.
-        // The denominator uses the full-image subband values (invDenom) mapped
-        // from patch coordinates to full-image subband coordinates.
+        // Compute cost: Σ_n Σ_{r,c in patch} |ΔW_n| / (|W_n_cover_patch| + σ)
+        // Uses patch-local cover subbands in the denominator; for patches well
+        // within image boundaries these match the full-image subbands.
         let cost = 0;
         for (let sn = 0; sn < 9; sn++) {
           const csb = coverPatchSubbands[sn];
@@ -339,7 +320,7 @@ const ZZ_TO_NAT_LOCAL = new Uint8Array([
  */
 export function renderCostHeatmap(
   canvas: HTMLCanvasElement,
-  costs: Float32Array[],
+  costs: Float64Array[],
   quantTable: Uint16Array,
   blocksWide: number,
   blocksHigh: number,

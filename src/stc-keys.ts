@@ -58,16 +58,19 @@ export async function buildHatMatrix(
 }
 
 /**
- * Derive a deterministic permutation of [0..n) via Fisher-Yates + AES-CTR keystream.
+ * Derive a deterministic permutation of [0..n) via Fisher-Yates + AES-CTR keystream
+ * with Lemire rejection sampling to eliminate modulus bias.
  */
 export async function derivePermutation(
   permKey: Uint8Array,  // 32-byte subkey from kdf.ts
   n: number,            // total carrier count
 ): Promise<Uint32Array> {
   const key = await crypto.subtle.importKey('raw', permKey as unknown as ArrayBuffer, 'AES-CTR', false, ['encrypt']);
-  const counter = new Uint8Array(16); // counter offset = 0
 
-  const zeroBuf = new Uint8Array(n * 4);
+  // Generate 2× keystream for rejection-sampling headroom
+  const numWords = n * 2;
+  const counter = new Uint8Array(16); // counter offset = 0
+  const zeroBuf = new Uint8Array(numWords * 4);
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-CTR', counter, length: 32 },
     key,
@@ -75,14 +78,26 @@ export async function derivePermutation(
   );
 
   const rand32 = new Uint32Array(encrypted);
+  let rIdx = 0;
 
   // Build identity permutation
   const perm = new Uint32Array(n);
   for (let i = 0; i < n; i++) perm[i] = i;
 
-  // Fisher-Yates
+  // Fisher-Yates with rejection sampling (Lemire 2019)
   for (let i = n - 1; i > 0; i--) {
-    const j = rand32[i] % (i + 1);
+    const bound = i + 1;
+    // Reject values below threshold to eliminate modulus bias
+    // threshold = 2^32 mod bound = (-bound >>> 0) % bound
+    const threshold = ((-bound) >>> 0) % bound;
+    let val: number;
+    do {
+      if (rIdx >= rand32.length) {
+        throw new Error('PRNG keystream exhausted in permutation');
+      }
+      val = rand32[rIdx++] >>> 0;
+    } while (val < threshold);
+    const j = val % bound;
     const tmp = perm[i]; perm[i] = perm[j]; perm[j] = tmp;
   }
 

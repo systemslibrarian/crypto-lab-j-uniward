@@ -30,13 +30,13 @@ export interface ExtractResult {
 export async function extract(
   dctCoeffs: Int16Array[],
   quantTable: Uint16Array,
-  costs: Float32Array[],
+  costs: Float64Array[],
   passphrase: string,
   salt: Uint8Array,
   rate: number,
   maxBytes: number = 65536,
 ): Promise<ExtractResult> {
-  const allCarriers = selectCarriers(dctCoeffs, quantTable, costs);
+  const allCarriers = selectCarriers(costs);
 
   // Derive same keys
   const { hatKey, permKey } = await deriveSTCKeys(passphrase, salt);
