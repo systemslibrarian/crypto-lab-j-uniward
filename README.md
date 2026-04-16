@@ -25,6 +25,19 @@ https://systemslibrarian.github.io/crypto-lab-j-uniward/
 
 Upload a JPEG, type a secret message, set an embedding rate (0.1–0.4 bpnzac), and embed. Download the stego JPEG. Re-upload and extract to recover the message. The steganalysis panel shows where bits were placed and compares J-UNIWARD's change distribution against LSB and F5 at the same payload size.
 
+## Screenshots
+
+<!-- Replace docs/ screenshots after first live deployment -->
+
+**Panel A — Cover image loaded (grass texture sample):**
+![Panel A](docs/screenshot-panel-a.png)
+
+**Panel B — Post-embed: cover / stego comparison + difference map:**
+![Panel B post-embed](docs/screenshot-panel-b-embed.png)
+
+**Panel C — Live steganalysis: J-UNIWARD vs LSB vs F5:**
+![Panel C steganalysis](docs/screenshot-panel-c.png)
+
 ## How to Run Locally
 
 ```bash

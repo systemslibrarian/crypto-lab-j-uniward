@@ -68,7 +68,7 @@ const heatmapCanvas  = document.getElementById('heatmap-canvas')  as HTMLCanvasE
 const imageInfo      = document.getElementById('image-info')!;
 const capacityTable  = document.getElementById('capacity-table')!;
 
-// Panel B
+// Panel B (post-embed elements)
 const embedPane    = document.getElementById('embed-pane')!;
 const extractPane  = document.getElementById('extract-pane')!;
 const tabEmbed     = document.getElementById('tab-embed')   as HTMLButtonElement;
@@ -85,6 +85,11 @@ const extractKeyInput = document.getElementById('extract-key-input') as HTMLInpu
 const extractFileInput = document.getElementById('extract-file-input') as HTMLInputElement;
 const extractOutput = document.getElementById('extract-output')!;
 const embedStatus   = document.getElementById('embed-status')!;
+const postEmbed     = document.getElementById('post-embed')!;
+const coverThumb    = document.getElementById('cover-thumb') as HTMLCanvasElement;
+const stegoThumb    = document.getElementById('stego-thumb') as HTMLCanvasElement;
+const diffCanvas    = document.getElementById('diff-canvas') as HTMLCanvasElement;
+const diffLabel     = document.getElementById('diff-label')!;
 
 // Panel C
 const analysisPayloadSlider = document.getElementById('analysis-payload-slider') as HTMLInputElement;
@@ -185,9 +190,8 @@ async function loadImage(file: File): Promise<void> {
 
     imageInfo.lastElementChild?.remove();
 
-    // Enable embed/extract buttons
+    // Enable embed button
     embedBtn.disabled   = false;
-    downloadBtn.disabled = true;
 
     showAlert(imageInfo, `Image loaded. Cost map ready. (${file.name}, ${Math.round(file.size/1024)} KB)`, 'success');
 
@@ -217,16 +221,43 @@ heatmapCheckbox.addEventListener('change', () => {
   }
 });
 
-// ─── Sample image loader ──────────────────────────────────────────────────────
+// ─── Sample image loader (cycling) ────────────────────────────────────────────
 
-document.getElementById('load-sample')?.addEventListener('click', async () => {
+const SAMPLES = [
+  { path: '/crypto-lab-j-uniward/samples/sample-grass.jpg',    label: 'Textured (grass)' },
+  { path: '/crypto-lab-j-uniward/samples/sample-smooth.jpg',   label: 'Smooth (gradient)' },
+  { path: '/crypto-lab-j-uniward/samples/sample-portrait.jpg', label: 'Mixed (geometric)' },
+];
+let sampleIdx = -1;
+
+const loadSampleBtn = document.getElementById('load-sample') as HTMLButtonElement | null;
+loadSampleBtn?.addEventListener('click', async () => {
+  sampleIdx = (sampleIdx + 1) % SAMPLES.length;
+  const sample = SAMPLES[sampleIdx];
   try {
-    const base = (import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL;
-    const res = await fetch(`${base}assets/sample.jpg`);
+    const res = await fetch(sample.path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
-    const file = new File([blob], 'sample.jpg', { type: 'image/jpeg' });
+    const file = new File([blob], sample.path.split('/').pop()!, { type: 'image/jpeg' });
     await loadImage(file);
+
+    // Show sample label below image
+    let lbl = document.getElementById('sample-label');
+    if (!lbl) {
+      lbl = document.createElement('div');
+      lbl.id = 'sample-label';
+      lbl.style.cssText = 'font-size:0.75rem; color:var(--text-secondary); margin-top:0.25rem;';
+      coverCanvas.parentElement?.appendChild(lbl);
+    }
+    lbl.textContent = sample.label;
+
+    // Pre-fill message and rate
+    msgInput.value = 'J-UNIWARD embeds here — adaptive, wavelet-guided, undetectable.';
+    rateSlider.value = '0.10';
+    rateSlider.dispatchEvent(new Event('input'));
+
+    // Update button label
+    if (loadSampleBtn) loadSampleBtn.textContent = 'Next Sample →';
   } catch (err) {
     showAlert(imageInfo, `Could not load sample: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
@@ -350,7 +381,47 @@ embedBtn.addEventListener('click', async () => {
 
     showAlert(embedStatus, `✓ Embedded via STC! ${result.carriersUsed} carriers, ${result.changesCount} changes, ${result.actualRate.toFixed(3)} bpnzac. ${fidelityNote}`, 'success');
 
-    downloadBtn.disabled = false;
+    // ── Post-embed display (Phase 2) ──────────────────────────────────────
+    postEmbed.classList.remove('hidden');
+
+    // Cover thumbnail
+    drawImageOnCanvas(coverThumb, decoded.pixels, decoded.width, decoded.height);
+    // Stego thumbnail
+    drawImageOnCanvas(stegoThumb, stegoDecoded.pixels, stegoDecoded.width, stegoDecoded.height);
+
+    // Difference map (10× amplified)
+    {
+      const w = decoded.width;
+      const h = decoded.height;
+      diffCanvas.width = w;
+      diffCanvas.height = h;
+      const ctx = diffCanvas.getContext('2d')!;
+      const imgData = ctx.createImageData(w, h);
+      const d = imgData.data;
+      const coverPx = decoded.pixels;
+      const stegoPx = stegoDecoded.pixels;
+      let totalDiff = 0;
+      const pixCount = w * h;
+      for (let i = 0; i < pixCount; i++) {
+        const off = i * 4;
+        const dr = Math.abs(coverPx[off] - stegoPx[off]);
+        const dg = Math.abs(coverPx[off + 1] - stegoPx[off + 1]);
+        const db = Math.abs(coverPx[off + 2] - stegoPx[off + 2]);
+        const amp = Math.min(255, ((dr + dg + db) / 3) * 10);
+        totalDiff += (dr + dg + db) / 3;
+        d[off] = amp;
+        d[off + 1] = amp;
+        d[off + 2] = amp;
+        d[off + 3] = 255;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      const avgDiff = totalDiff / pixCount;
+      if (avgDiff < 0.5) {
+        diffLabel.textContent = 'Pixel difference (10× amplified) — Imperceptible to human vision ✓';
+      } else {
+        diffLabel.textContent = 'Pixel difference (10× amplified)';
+      }
+    }
 
     // Run steganalysis with the embedded result
     if (decoded.lumaPixels && decoded.dctCoeffs && stegoDecoded) {
@@ -387,7 +458,7 @@ downloadBtn.addEventListener('click', () => {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = 'stego.jpg';
+  a.download = `stego-${Date.now()}.jpg`;
   a.click();
   URL.revokeObjectURL(url);
 });
@@ -514,39 +585,57 @@ methodTabs.forEach(tab => {
 
 function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
   if (!analysisResult) {
-    statsContainer.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">Load an image and embed a message to see steganalysis results.</p>';
+    statsContainer.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem;">Load an image and click Embed to see live steganalysis results. The J-UNIWARD advantage only becomes visible after embedding.</p>';
     return;
   }
 
+  const methods: { key: 'lsb' | 'f5' | 'juniward'; label: string }[] = [
+    { key: 'lsb', label: 'LSB' },
+    { key: 'f5', label: 'F5' },
+    { key: 'juniward', label: 'J-UNIWARD' },
+  ];
+
+  // Build chi-square p-value bars for all methods
+  let barsHtml = `<div style="margin-bottom:1rem;">
+    <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Chi-square p-value</h3>`;
+  for (const m of methods) {
+    const stats: MethodStats = analysisResult[m.key];
+    const pVal = stats.pValue;
+    const barWidth = Math.min(100, pVal * 200); // scale: 0.5 → 100%
+    let barColor: string;
+    let checkMark = '';
+    if (pVal < 0.05) {
+      barColor = 'var(--error-text)';
+    } else if (pVal < 0.20) {
+      barColor = 'var(--warning-text)';
+    } else {
+      barColor = 'var(--success-color)';
+      checkMark = ' ✓';
+    }
+    const pDisplay = pVal < 0.001 ? '< 0.001' : pVal.toFixed(3);
+    barsHtml += `<div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.35rem;">
+      <span style="width:5.5rem; font-size:0.82rem; color:var(--text-secondary); text-align:right;">${m.label}:</span>
+      <div style="flex:1; background:var(--bg-tertiary); border-radius:3px; height:18px; overflow:hidden;">
+        <div style="width:${barWidth}%; height:100%; background:${barColor}; border-radius:3px; transition:width 0.3s;"></div>
+      </div>
+      <span style="font-size:0.82rem; font-weight:600; color:${barColor}; min-width:5rem;">${pDisplay}${checkMark}</span>
+    </div>`;
+  }
+  barsHtml += `<span style="font-size:0.72rem; color:var(--text-secondary);">(higher p-value = harder to detect)</span></div>`;
+
+  // Active method detail card
   const stats: MethodStats = analysisResult[method];
   const label = stats.label;
   const labelClass = label === 'Resistant' ? 'resist'
     : label === 'Moderate Risk' ? 'moderate'
     : 'detect';
 
-  const pValDisplay = stats.pValue < 0.001
-    ? '< 0.001 (highly detectable)'
-    : stats.pValue < 0.05
-    ? `${stats.pValue.toFixed(4)} (detectable)`
-    : `${stats.pValue.toFixed(4)} (not significant)`;
-
   statsContainer.innerHTML = `
+    ${barsHtml}
     <div class="stats-grid">
       <div class="stat-card">
-        <h3>Method</h3>
-        <div class="stat-value">${stats.name}</div>
-      </div>
-      <div class="stat-card">
-        <h3>Detectability</h3>
+        <h3>Active: ${stats.name}</h3>
         <div class="stat-value ${labelClass}">${label}</div>
-      </div>
-      <div class="stat-card">
-        <h3>Chi-Square Statistic</h3>
-        <div class="stat-value">${stats.chiSq.toFixed(2)}</div>
-      </div>
-      <div class="stat-card">
-        <h3>Chi-Square p-value</h3>
-        <div class="stat-value">${pValDisplay}</div>
       </div>
       <div class="stat-card">
         <h3>DCT Coefficients Modified</h3>
@@ -602,4 +691,3 @@ function renderHistogram(canvas: HTMLCanvasElement, hist: Int32Array): void {
 
 setupDropzone();
 embedBtn.disabled  = true;
-downloadBtn.disabled = true;

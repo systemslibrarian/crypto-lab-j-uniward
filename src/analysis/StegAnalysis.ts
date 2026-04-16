@@ -218,10 +218,19 @@ export function renderChangesHeatmap(
     for (let px = 0; px < 8; px++) {
       for (let py = 0; py < 8; py++) {
         const ii = ((bRow * 8 + px) * W + bCol * 8 + py) * 4;
-        d[ii]     = changed ? 255 : 0;
-        d[ii + 1] = changed ? 80  : 0;
-        d[ii + 2] = changed ? 0   : 0;
-        d[ii + 3] = changed ? 200 : 0;
+        if (changed) {
+          // Red with 40% opacity
+          d[ii]     = 255;
+          d[ii + 1] = 60;
+          d[ii + 2] = 0;
+          d[ii + 3] = 102; // ~40%
+        } else {
+          // Gray with 10% opacity
+          d[ii]     = 128;
+          d[ii + 1] = 128;
+          d[ii + 2] = 128;
+          d[ii + 3] = 26; // ~10%
+        }
       }
     }
   }

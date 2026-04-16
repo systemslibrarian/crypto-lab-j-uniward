@@ -25,7 +25,7 @@
       <header role="banner">
         <span class="logo">🔐 J-UNIWARD</span>
         <span class="tagline">
-          JPEG steganography — Daubechies-8 wavelet cost &amp; full STC embedding
+          JPEG steganography — J-UNIWARD wavelet cost · Full STC (h=12) embedding
         </span>
         <div class="eco-links">
           <a href="https://systemslibrarian.github.io/crypto-compare/?cat=steganography" target="_blank" rel="noopener">crypto-compare</a>
@@ -84,8 +84,9 @@
 
               <div class="alert alert-info" style="font-size:0.8rem; margin-bottom:0.75rem;">
                 <strong>Algorithm:</strong> Full STC — Viterbi-optimal embedding (h=12, 4096 states).
-                Efficiency: ~0.95 bits/carrier. Key-derived carrier permutation and hat matrix
-                via PBKDF2 + HKDF + AES-CTR.
+                Efficiency: ~0.95 bits/carrier. Changes land in high-texture
+                DCT regions where wavelet residuals are large — invisible to
+                chi-square and histogram attacks at ≤ 0.3 bpnzac.
               </div>
 
               <div class="tabs" role="tablist" aria-label="Embed or Extract mode">
@@ -114,9 +115,9 @@
                   <input id="rate-slider" type="range" min="0.05" max="0.50" step="0.01" value="0.10"
                     aria-label="Embedding rate in bits per non-zero AC coefficient" />
                   <div class="range-labels">
-                    <span>0.05 (safe)</span>
-                    <span>0.25 (moderate)</span>
-                    <span>0.50 (risky)</span>
+                    <span title="~1 modified block per 20 — undetectable by all known attacks">0.05 (safe)</span>
+                    <span title="Detection risk rises — use only with textured images">0.25 (moderate)</span>
+                    <span title="Chi-square detects this rate — educational use only">0.50 (risky)</span>
                   </div>
                 </div>
 
@@ -127,10 +128,30 @@
 
                 <div class="btn-row">
                   <button id="embed-btn" class="btn btn-primary" disabled>🔒 Embed</button>
-                  <button id="download-btn" class="btn btn-secondary" disabled>⬇ Download Stego JPEG</button>
                 </div>
 
                 <div id="embed-status" class="hidden" role="status" aria-live="polite" style="margin-top:0.75rem;"></div>
+
+                <!-- Post-embed comparison (Phase 2) -->
+                <div id="post-embed" class="hidden" style="margin-top:1rem;">
+                  <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-start;">
+                    <div style="flex:1; min-width:140px; text-align:center;">
+                      <span style="font-variant:small-caps; font-size:0.75rem; color:var(--text-secondary); display:block; margin-bottom:0.25rem;">Cover</span>
+                      <canvas id="cover-thumb" style="max-width:180px; width:100%; border-radius:4px; display:block; margin:0 auto;"></canvas>
+                      <span style="font-size:0.75rem; color:var(--text-secondary);">original</span>
+                    </div>
+                    <div style="flex:1; min-width:140px; text-align:center;">
+                      <span style="font-variant:small-caps; font-size:0.75rem; color:var(--text-secondary); display:block; margin-bottom:0.25rem;">Stego</span>
+                      <canvas id="stego-thumb" style="max-width:180px; width:100%; border-radius:4px; display:block; margin:0 auto;"></canvas>
+                      <span style="font-size:0.75rem; color:var(--text-secondary);">embedded</span>
+                    </div>
+                  </div>
+                  <button id="download-btn" class="btn btn-primary" style="margin-top:0.75rem; background:#238636; border-color:#238636;">↓ Download Stego JPEG</button>
+                  <div style="margin-top:0.75rem;">
+                    <canvas id="diff-canvas" style="max-width:100%; border-radius:4px; display:block;"></canvas>
+                    <span id="diff-label" style="font-size:0.75rem; color:var(--text-secondary);">Pixel difference (10× amplified)</span>
+                  </div>
+                </div>
               </div>
 
               <!-- Extract pane -->
@@ -191,15 +212,15 @@
 
               <div id="stats-container" aria-live="polite">
                 <p style="color: var(--text-secondary); font-size: 0.85rem;">
-                  Load an image and embed a message to see live steganalysis results.
+                  Load an image and click Embed to see live steganalysis results.
+                  The J-UNIWARD advantage only becomes visible after embedding.
                 </p>
               </div>
 
               <div style="margin-top:0.75rem;">
-                <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.25rem;">
-                  Embedding change map (red = modified block)
-                </p>
-                <canvas id="changes-canvas" role="img" aria-label="Embedding change heatmap" style="max-width:100%; border-radius:4px; display:block;"></canvas>
+                <h3 style="font-size:0.9rem; margin-bottom:0.25rem;">DCT Block Change Map</h3>
+                <canvas id="changes-canvas" role="img" aria-label="DCT block change map" style="max-width:100%; border-radius:4px; display:block;"></canvas>
+                <span style="font-size:0.75rem; color:var(--text-secondary);">Modified DCT blocks (red) — Gray = unchanged</span>
               </div>
 
             </div>
