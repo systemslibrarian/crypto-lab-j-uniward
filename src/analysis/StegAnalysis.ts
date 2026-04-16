@@ -5,7 +5,7 @@
  * at the same payload size:
  *   1. LSB  — naïve spatial-domain least-significant-bit replacement
  *   2. F5   — sequential DCT coefficient embedding (no cost function)
- *   3. J-UNIWARD — this implementation (adaptive wavelet cost + Hamming/STC)
+ *   3. J-UNIWARD — this implementation (adaptive wavelet cost + full STC)
  *
  * Statistics:
  *   - Chi-square test on adjacent DCT coefficient histogram pairs (PoV attack)

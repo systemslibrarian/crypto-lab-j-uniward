@@ -1,8 +1,7 @@
 /**
  * stc.ts — Full Syndrome-Trellis Code: Viterbi embed + syndrome extract
  *
- * Constraint height h=12 (4096 states). Replaces the former Hamming (7,4)
- * approximation entirely. No Hamming code remains.
+ * Constraint height h=12 (4096 states). Full Viterbi-optimal STC implementation.
  *
  * Filler, Judas & Fridrich (2011):
  *   "Minimizing Additive Distortion in Steganography Using Syndrome-Trellis Codes"

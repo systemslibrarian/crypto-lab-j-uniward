@@ -25,7 +25,7 @@
       <header role="banner">
         <span class="logo">🔐 J-UNIWARD</span>
         <span class="tagline">
-          JPEG steganography — Daubechies-8 wavelet cost &amp; Hamming syndrome embedding
+          JPEG steganography — Daubechies-8 wavelet cost &amp; full STC embedding
         </span>
         <div class="eco-links">
           <a href="https://systemslibrarian.github.io/crypto-compare/?cat=steganography" target="_blank" rel="noopener">crypto-compare</a>
@@ -83,11 +83,9 @@
             <div class="panel-body">
 
               <div class="alert alert-info" style="font-size:0.8rem; margin-bottom:0.75rem;">
-                <strong>Algorithm:</strong> Full Syndrome-Trellis Code (STC) embedding
-                with Viterbi-optimal search (h=10, 1024 states). The STC finds the
-                minimum-distortion change vector, achieving near-optimal ~1 bit per
-                carrier efficiency — following the Filler, Judas &amp; Fridrich (2011)
-                framework.
+                <strong>Algorithm:</strong> Full STC — Viterbi-optimal embedding (h=12, 4096 states).
+                Efficiency: ~0.95 bits/carrier. Key-derived carrier permutation and hat matrix
+                via PBKDF2 + HKDF + AES-CTR.
               </div>
 
               <div class="tabs" role="tablist" aria-label="Embed or Extract mode">

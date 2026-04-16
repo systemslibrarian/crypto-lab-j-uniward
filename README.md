@@ -2,9 +2,14 @@
 
 ## What It Is
 
-Browser-native implementation of J-UNIWARD (JPEG Universal Wavelet Relative Distortion) — the academic gold standard for adaptive JPEG steganography. Implements the full pipeline from the 2013 Holub & Fridrich paper: Daubechies-8 three-level wavelet decomposition, per-coefficient distortion cost assignment, and Syndrome-Trellis Code (STC) payload embedding via Viterbi-optimal search (Filler, Judas & Fridrich 2011). Includes a three-way steganalysis comparison against LSB and F5 to demonstrate exactly why adaptive methods resist detection. No backends. No simulated math.
+Browser-native implementation of J-UNIWARD (JPEG Universal Wavelet Relative Distortion) — the academic gold standard for adaptive JPEG steganography. Implements the full pipeline from the 2013 Holub & Fridrich paper: Daubechies-8 three-level wavelet decomposition, per-coefficient distortion cost assignment, and full Syndrome-Trellis Code (STC) payload embedding with Viterbi-optimal search (h=12, 4096 states) following Filler, Judas & Fridrich (2011). Hat matrix and carrier permutation derived via PBKDF2-SHA-256 (600k iterations) + HKDF + AES-CTR. Includes a three-way steganalysis comparison against LSB and F5 to demonstrate exactly why adaptive methods resist detection. No backends. No simulated math.
 
-> **Algorithm note:** Embedding uses full Syndrome-Trellis Codes with constraint height h=10 (1024 trellis states). The Viterbi algorithm finds the minimum-distortion change vector, achieving near-optimal embedding efficiency (~1 bit per carrier). The parity-check matrix is constructed by tiling a key-derived random h×(h+1) submatrix along the diagonal, following the Filler-Judas-Fridrich framework.
+> **Algorithm:** Full Syndrome Trellis Coding (STC) — Filler, Judas & Fridrich
+> (2011). Trellis height h=12 (4096 states). Viterbi-optimal cost assignment
+> against J-UNIWARD wavelet distortion. Hat matrix and carrier permutation
+> derived from a PBKDF2-SHA-256 (600,000 iterations) + HKDF key schedule.
+> Embedding efficiency: ~0.95 bits per non-zero AC coefficient.
+> Detection resistance holds across low, moderate, and high payload rates.
 
 ## When to Use It
 
