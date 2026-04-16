@@ -93,7 +93,7 @@ export async function loadImage(file: File): Promise<void> {
 
     const bW = state.decoded.lumaBlocksWide;
     const bH = state.decoded.lumaBlocksHigh;
-    state.costs = computeCostMatrix(state.decoded.lumaPixels, state.decoded.quantTable, bW, bH);
+    state.costs = await computeCostMatrix(state.decoded.lumaPixels, state.decoded.quantTable, bW, bH);
 
     costStatus.remove();
     embedBtn.disabled = false;
@@ -148,9 +148,9 @@ heatmapCb.addEventListener('change', () => {
 
 const BASE = (import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL;
 const SAMPLES = [
-  { path: `${BASE}samples/sample-grass.jpg`,    label: 'Textured (grass)' },
-  { path: `${BASE}samples/sample-smooth.jpg`,   label: 'Smooth (gradient)' },
-  { path: `${BASE}samples/sample-portrait.jpg`, label: 'Mixed (geometric)' },
+  { path: `${BASE}samples/sample-grass.jpg`,    label: 'Textured (natural green)' },
+  { path: `${BASE}samples/sample-smooth.jpg`,   label: 'Smooth (sunset gradient)' },
+  { path: `${BASE}samples/sample-portrait.jpg`, label: 'Mixed (geometric shapes)' },
 ];
 
 const loadSampleBtn = document.getElementById('load-sample') as HTMLButtonElement | null;

@@ -130,7 +130,7 @@ extractBtn.addEventListener('click', async () => {
 
     const bW = stegoD.lumaBlocksWide;
     const bH = stegoD.lumaBlocksHigh;
-    const stegoCosts = computeCostMatrix(stegoD.lumaPixels, stegoD.quantTable, bW, bH);
+    const stegoCosts = await computeCostMatrix(stegoD.lumaPixels, stegoD.quantTable, bW, bH);
 
     const result = await extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key, extractSalt, extractRate);
     showAlert(extractOutput,

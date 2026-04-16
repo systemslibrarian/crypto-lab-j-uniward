@@ -182,12 +182,12 @@ const SIGMA = 1e-6; // stabilization constant (Holub & Fridrich 2012)
  * @returns           Array of length blockCount, each a Float64Array(64) of costs
  *                    in zigzag order.  Wet cost = 1e8 (effectively infinity).
  */
-export function computeCostMatrix(
+export async function computeCostMatrix(
   lumaPixels: Float32Array,
   quantTable: Uint16Array,
   blocksWide: number,
   blocksHigh: number,
-): Float64Array[] {
+): Promise<Float64Array[]> {
   const blockCount = blocksWide * blocksHigh;
   const rows = blocksHigh * 8;
   const cols = blocksWide * 8;
@@ -215,6 +215,10 @@ export function computeCostMatrix(
   const PAD = 32; // generous padding for 3-level D8; exact = (2^3)*(8-1) = 56/2 = 28
 
   for (let bRow = 0; bRow < blocksHigh; bRow++) {
+    // Yield to browser every 4 block-rows to prevent UI freeze
+    if (bRow > 0 && bRow % 4 === 0) {
+      await new Promise(r => setTimeout(r, 0));
+    }
     for (let bCol = 0; bCol < blocksWide; bCol++) {
       const bi = bRow * blocksWide + bCol;
 
