@@ -98,11 +98,28 @@ export async function embed(
 
   const encoder = new TextEncoder();
   const msgBytes = encoder.encode(message);
-  // Prepend 4-byte big-endian length
-  const payload = new Uint8Array(4 + msgBytes.length);
+  // Prepend 4-byte big-endian length, append 16-byte HMAC tag
+  // Format: [4-byte length][message bytes][16-byte HMAC-SHA-256 truncated]
+
+  // Derive keys from passphrase (need macKey for HMAC)
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const { hatKey, permKey, macKey } = await deriveSTCKeys(passphrase, salt);
+
+  // Compute HMAC-SHA-256 over the raw message, truncated to 16 bytes
+  const hmacKey = await crypto.subtle.importKey(
+    'raw', macKey as unknown as ArrayBuffer,
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const fullMac = new Uint8Array(
+    await crypto.subtle.sign('HMAC', hmacKey, msgBytes as unknown as ArrayBuffer),
+  );
+  const macTag = fullMac.slice(0, 16);
+
+  const payload = new Uint8Array(4 + msgBytes.length + 16);
   const dv = new DataView(payload.buffer);
   dv.setUint32(0, msgBytes.length, false);
   payload.set(msgBytes, 4);
+  payload.set(macTag, 4 + msgBytes.length);
 
   // Expand payload to bit array
   const payloadBits = new Uint8Array(payload.length * 8);
@@ -112,7 +129,6 @@ export async function embed(
     }
   }
 
-  const nzac = countNZAC(dctCoeffs);
   const allCarriers = selectCarriers(costs);
 
   const m = payloadBits.length;
@@ -132,13 +148,11 @@ export async function embed(
   if (carriersNeeded > allCarriers.length) {
     throw new Error(
       `Payload too large: need ${carriersNeeded} carriers but only ${allCarriers.length} available. ` +
-      `Reduce message size or increase embedding rate.`
+      `Reduce message size or increase embedding rate.`,
     );
   }
 
-  // Derive keys from passphrase
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const { hatKey, permKey } = await deriveSTCKeys(passphrase, salt);
+  const nzac = countNZAC(dctCoeffs);
 
   // Build cover LSBs and cost arrays for selected carriers
   const n = carriersNeeded;

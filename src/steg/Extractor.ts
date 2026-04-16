@@ -39,7 +39,7 @@ export async function extract(
   const allCarriers = selectCarriers(costs);
 
   // Derive same keys
-  const { hatKey, permKey } = await deriveSTCKeys(passphrase, salt);
+  const { hatKey, permKey, macKey } = await deriveSTCKeys(passphrase, salt);
 
   const STC_H = 12;
   const w = Math.ceil(STC_H / rate);
@@ -74,8 +74,8 @@ export async function extract(
     throw new Error('Extraction failed: invalid message length. Check key and ensure this is a stego JPEG.');
   }
 
-  // Full payload: 4 bytes length + msgLen bytes
-  const fullM = (4 + msgLen) * 8;
+  // Full payload: 4 bytes length + msgLen bytes + 16 bytes HMAC tag
+  const fullM = (4 + msgLen + 16) * 8;
   const mPadded = Math.ceil(fullM / STC_H) * STC_H;
   const numBlocks = mPadded / STC_H;
   const carriersNeeded = numBlocks * w;
@@ -111,6 +111,35 @@ export async function extract(
       byte = (byte << 1) | (msgBits[i * 8 + b] ?? 0);
     }
     bytes[i] = byte;
+  }
+
+  // Decode 16-byte HMAC tag
+  const macStartBit = 32 + msgLen * 8;
+  const macBits = fullBits.subarray(macStartBit, macStartBit + 128);
+  const extractedMac = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    let byte = 0;
+    for (let b = 0; b < 8; b++) {
+      byte = (byte << 1) | (macBits[i * 8 + b] ?? 0);
+    }
+    extractedMac[i] = byte;
+  }
+
+  // Verify HMAC-SHA-256 (truncated to 16 bytes)
+  const hmacKey = await crypto.subtle.importKey(
+    'raw', macKey as unknown as ArrayBuffer,
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const fullMac = new Uint8Array(
+    await crypto.subtle.sign('HMAC', hmacKey, bytes as unknown as ArrayBuffer),
+  );
+  const expectedMac = fullMac.slice(0, 16);
+
+  // Constant-time comparison
+  let diff = 0;
+  for (let i = 0; i < 16; i++) diff |= extractedMac[i] ^ expectedMac[i];
+  if (diff !== 0) {
+    throw new Error('Extraction failed: HMAC verification failed. Wrong key or corrupted stego image.');
   }
 
   const decoder = new TextDecoder('utf-8', { fatal: false });

@@ -12,7 +12,7 @@
  *                            |W_k(cover)[r,c]| + σ
  *
  * where k indexes the 9 detail subbands (LH1, HL1, HH1, LH2, HL2, HH2,
- * LH3, HL3, HH3) and σ = 2^{-6}.
+ * LH3, HL3, HH3) and σ = 10^{-6}.
  */
 
 // ─── D8 filter coefficients (Daubechies 1988, exact) ─────────────────────────

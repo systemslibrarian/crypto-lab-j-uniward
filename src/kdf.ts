@@ -31,7 +31,7 @@ async function hkdfExpand(
 export async function deriveSTCKeys(
   passphrase: string,
   salt: Uint8Array, // 16 bytes, caller-generated via crypto.getRandomValues
-): Promise<{ hatKey: Uint8Array; permKey: Uint8Array; salt: Uint8Array }> {
+): Promise<{ hatKey: Uint8Array; permKey: Uint8Array; macKey: Uint8Array; salt: Uint8Array }> {
   const enc = new TextEncoder();
   const passphraseKey = await crypto.subtle.importKey(
     'raw',
@@ -50,10 +50,11 @@ export async function deriveSTCKeys(
   const masterKey = new Uint8Array(masterBits);
 
   // HKDF domain-separated subkeys
-  const [hatKey, permKey] = await Promise.all([
+  const [hatKey, permKey, macKey] = await Promise.all([
     hkdfExpand(masterKey, enc.encode('stc-hat-v1'), 32),
     hkdfExpand(masterKey, enc.encode('stc-perm-v1'), 32),
+    hkdfExpand(masterKey, enc.encode('stc-mac-v1'), 32),
   ]);
 
-  return { hatKey, permKey, salt };
+  return { hatKey, permKey, macKey, salt };
 }
