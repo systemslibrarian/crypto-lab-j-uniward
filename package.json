@@ -1,0 +1,23 @@
+{
+  "name": "crypto-lab-j-uniward",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Browser-based J-UNIWARD JPEG steganography demo — Daubechies-8 wavelet cost function, STC embedding, three-way steganalysis comparison vs LSB and F5. No backends. No simulated math.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "generate-sample": "node scripts/generate-sample.mjs"
+  },
+  "dependencies": {
+    "jpeg-js": "^0.4.4",
+    "js-sha3": "^0.9.3"
+  },
+  "devDependencies": {
+    "@types/jpeg-js": "^0.3.7",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2"
+  }
+}

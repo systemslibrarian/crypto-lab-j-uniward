@@ -1,0 +1,19 @@
+{
+  "id": "j-uniward",
+  "name": "J-UNIWARD",
+  "full_name": "JPEG Universal Wavelet Relative Distortion",
+  "category": "steganography",
+  "year": 2013,
+  "authors": "Holub & Fridrich",
+  "summary": "Adaptive JPEG steganography using a 3-level Daubechies-8 wavelet decomposition to assign per-DCT-coefficient embedding cost. Bits are placed in high-texture, high-noise regions using Syndrome-Trellis Codes, minimizing statistical detectability. The academic gold standard — all new JPEG steg schemes are benchmarked against it.",
+  "strength": "Resists chi-square, SRM, and deep CNN steganalyzers (SRNet, Xu-Net) at low-to-medium payloads (< 0.3 bpnzac)",
+  "weaknesses": "Detectable at high embedding rates (> 0.4 bpnzac); payload destroyed by re-compression at different JPEG quality",
+  "lineage": "F5 (2001) → nsF5 (2007, shrinkage fix) → J-UNIWARD (2013, adaptive cost + STC)",
+  "use_cases": [
+    "covert communication research",
+    "steganography benchmarking",
+    "academic steganalysis evaluation"
+  ],
+  "demo": "https://systemslibrarian.github.io/crypto-lab-j-uniward/",
+  "compare": "https://systemslibrarian.github.io/crypto-compare/?cat=steganography"
+}
