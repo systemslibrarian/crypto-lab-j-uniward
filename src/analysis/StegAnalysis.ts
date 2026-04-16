@@ -131,18 +131,16 @@ export function chiSquareAttack(hist: Int32Array): { chiSq: number; pValue: numb
   return { chiSq, pValue, df };
 }
 
-/** Regularized incomplete gamma function upper tail P(a, x) approximation */
 function chiSquarePValue(x: number, df: number): number {
-  if (df <= 0 || x < 0) return 1;
-  // Use Wilson-Hilferty normal approximation for large df
-  const k = df / 2;
-  if (k > 100) {
-    const z = Math.pow(x / df, 1 / 3) - (1 - 2 / (9 * df));
-    const sigma = Math.sqrt(2 / (9 * df));
-    return 1 - normalCDF(z / sigma);
-  }
-  // Numerical integration of chi-square CDF using series expansion
-  return 1 - regularizedGammaLower(k, x / 2);
+  if (!Number.isFinite(x) || df <= 0 || x < 0) return 1;
+  if (x === 0) return 1;
+
+  // Wilson-Hilferty transform is stable enough for this demo and avoids the
+  // numerical instability that produced NaN in the previous gamma-series path.
+  const z = (Math.pow(x / df, 1 / 3) - (1 - 2 / (9 * df))) / Math.sqrt(2 / (9 * df));
+  const pValue = 1 - normalCDF(z);
+  if (!Number.isFinite(pValue)) return x > df ? 0 : 1;
+  return Math.min(1, Math.max(0, pValue));
 }
 
 function normalCDF(z: number): number {
@@ -152,31 +150,6 @@ function normalCDF(z: number): number {
                t * (-1.821255978 + t * 1.330274429))));
   const phi = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * z * z) * poly;
   return z >= 0 ? 1 - phi : phi;
-}
-
-function regularizedGammaLower(a: number, x: number): number {
-  // Series expansion for γ(a,x)/Γ(a)
-  if (x < 0) return 0;
-  if (x === 0) return 0;
-  let term = 1 / a;
-  let sum = term;
-  for (let n = 1; n < 200; n++) {
-    term *= x / (a + n);
-    sum += term;
-    if (Math.abs(term) < 1e-10) break;
-  }
-  return Math.exp(-x + a * Math.log(x) - logGamma(a)) * sum;
-}
-
-function logGamma(z: number): number {
-  // Stirling approximation
-  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
-             -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
-  let x = z, y = z, tmp = x + 5.5;
-  tmp -= (x + 0.5) * Math.log(tmp);
-  let ser = 1.000000000190015;
-  for (const ci of c) ser += ci / ++y;
-  return -tmp + Math.log(2.5066282746310005 * ser / x);
 }
 
 // ─── Change count analysis ────────────────────────────────────────────────────
@@ -246,6 +219,7 @@ export function detectabilityLabel(
   changesCount: number,
   totalCoeffs: number,
 ): DetectLabel {
+  if (!Number.isFinite(chiSqPValue)) return 'Moderate Risk';
   const changeRate = changesCount / totalCoeffs;
   if (chiSqPValue < 0.001 || changeRate > 0.4) return 'Trivially Detectable';
   if (chiSqPValue < 0.05  || changeRate > 0.2) return 'Likely Detectable';

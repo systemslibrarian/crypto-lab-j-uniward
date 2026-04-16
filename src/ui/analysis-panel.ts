@@ -70,7 +70,7 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
 
   for (const m of methods) {
     const stats: MethodStats = state.analysisResult[m.key];
-    const pVal = stats.pValue;
+    const pVal = Number.isFinite(stats.pValue) ? stats.pValue : 0;
     const barWidth = Math.min(100, pVal * 200);
     let barColor: string;
     let label: string;
