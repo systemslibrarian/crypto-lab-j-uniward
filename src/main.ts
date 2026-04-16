@@ -59,6 +59,8 @@ let origBuffer:    ArrayBuffer | null = null;
 let stegoBuffer:   ArrayBuffer | null = null;
 let stegoDecoded:  JpegDecoded | null = null;
 let analysisResult: StegAnalysisResult | null = null;
+let lastEmbedSalt: Uint8Array | null = null;
+let lastEmbedRate: number = 0.10;
 
 // Panel A canvases
 const coverCanvas    = document.getElementById('cover-canvas')    as HTMLCanvasElement;
@@ -308,9 +310,31 @@ embedBtn.addEventListener('click', async () => {
     embedStatus.classList.add('hidden');
     await new Promise(r => setTimeout(r, 10));
 
-    const result = embed(decoded.dctCoeffs, decoded.quantTable, costs, message, key, rate);
+    const result = await embed(decoded.dctCoeffs, decoded.quantTable, costs, message, key, rate);
 
-    stegoBuffer  = encode(decoded, result.modifiedCoeffs, origBuffer);
+    // Store salt and rate for extraction round-trip
+    lastEmbedSalt = result.salt;
+    lastEmbedRate = rate;
+
+    // Encode stego JPEG
+    const rawStego = encode(decoded, result.modifiedCoeffs, origBuffer);
+
+    // Inject COM marker with salt (16 bytes) + rate (4 bytes float32) after SOI
+    // COM marker: FF FE [length 2 bytes] [payload]
+    // Payload = 16 bytes salt + 4 bytes rate (Float32, big-endian) = 20 bytes
+    // Length field = 20 + 2 = 22
+    const rawArr = new Uint8Array(rawStego);
+    const comPayload = new Uint8Array(20);
+    comPayload.set(result.salt, 0);
+    new DataView(comPayload.buffer).setFloat32(16, rate, false);
+    const comMarker = new Uint8Array([0xFF, 0xFE, 0x00, 0x16, ...comPayload]);
+    // Insert after SOI (first 2 bytes: FF D8)
+    const stegoWithCom = new Uint8Array(2 + comMarker.length + rawArr.length - 2);
+    stegoWithCom.set(rawArr.subarray(0, 2), 0); // SOI
+    stegoWithCom.set(comMarker, 2);
+    stegoWithCom.set(rawArr.subarray(2), 2 + comMarker.length);
+
+    stegoBuffer  = stegoWithCom.buffer;
     stegoDecoded = decode(stegoBuffer);
 
     // Round-trip fidelity check: compare intended modifications vs re-decoded
@@ -370,6 +394,22 @@ downloadBtn.addEventListener('click', () => {
 
 // ─── Extract ─────────────────────────────────────────────────────────────────
 
+/**
+ * Read salt (16 bytes) and rate (float32) from COM marker injected after SOI.
+ * COM marker format: FF FE 00 16 [16-byte salt] [4-byte float32 rate BE]
+ */
+function readComSideband(buf: ArrayBuffer): { salt: Uint8Array; rate: number } | null {
+  const arr = new Uint8Array(buf);
+  // SOI = FF D8, then look for FF FE
+  if (arr.length < 26 || arr[0] !== 0xFF || arr[1] !== 0xD8) return null;
+  if (arr[2] !== 0xFF || arr[3] !== 0xFE) return null;
+  const len = (arr[4] << 8) | arr[5];
+  if (len !== 22) return null; // 20 payload + 2 length field
+  const salt = arr.slice(6, 22);
+  const rate = new DataView(arr.buffer, arr.byteOffset + 22, 4).getFloat32(0, false);
+  return { salt, rate };
+}
+
 extractFileInput?.addEventListener('change', async () => {
   const file = extractFileInput.files?.[0];
   if (!file) return;
@@ -389,15 +429,42 @@ extractBtn.addEventListener('click', async () => {
 
   // Try active stego buffer first, then uploaded file
   let stegoD: JpegDecoded | null = null;
-  if (stegoDecoded && decoded && costs) {
+  let extractSalt: Uint8Array | null = null;
+  let extractRate: number = 0;
+
+  if (stegoDecoded && decoded && costs && lastEmbedSalt) {
     stegoD = stegoDecoded;
+    extractSalt = lastEmbedSalt;
+    extractRate = lastEmbedRate;
   } else {
     const d = (extractFileInput as unknown as Record<string, unknown>)['_decoded'] as JpegDecoded | undefined;
+    const b = (extractFileInput as unknown as Record<string, unknown>)['_buf'] as ArrayBuffer | undefined;
     if (d) stegoD = d;
+    if (b) {
+      const sideband = readComSideband(b);
+      if (sideband) {
+        extractSalt = sideband.salt;
+        extractRate = sideband.rate;
+      }
+    }
+  }
+
+  // Also try reading COM from stegoBuffer if we have it
+  if (!extractSalt && stegoBuffer) {
+    const sideband = readComSideband(stegoBuffer);
+    if (sideband) {
+      extractSalt = sideband.salt;
+      extractRate = sideband.rate;
+    }
   }
 
   if (!stegoD) {
     showAlert(extractOutput, 'No stego JPEG loaded. Embed a message first or upload a stego JPEG above.', 'error');
+    return;
+  }
+
+  if (!extractSalt || extractRate <= 0) {
+    showAlert(extractOutput, 'Could not read embedding parameters from stego JPEG. Ensure this is a valid stego file.', 'error');
     return;
   }
 
@@ -410,7 +477,7 @@ extractBtn.addEventListener('click', async () => {
     const bH = Math.ceil(stegoD.height / 8);
     const stegoCosts = computeCostMatrix(stegoD.lumaPixels, stegoD.quantTable, bW, bH);
 
-    const result = extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key);
+    const result = await extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key, extractSalt, extractRate);
     showAlert(extractOutput, `✓ Recovered (${result.bytesRecovered} bytes):\n\n${result.message}`, 'success');
     extractOutput.style.whiteSpace = 'pre-wrap';
 

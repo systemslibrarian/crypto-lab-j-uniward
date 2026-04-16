@@ -19,7 +19,7 @@ export async function buildHatMatrix(
 ): Promise<Uint32Array> {
   if (w <= H) throw new Error(`w=${w} must be > H=${H}`);
 
-  const key = await crypto.subtle.importKey('raw', hatKey, 'AES-CTR', false, ['encrypt']);
+  const key = await crypto.subtle.importKey('raw', hatKey as unknown as ArrayBuffer, 'AES-CTR', false, ['encrypt']);
   const cols = new Uint32Array(w);
   let collected = 0;
   let counterOffset = 0;
@@ -64,7 +64,7 @@ export async function derivePermutation(
   permKey: Uint8Array,  // 32-byte subkey from kdf.ts
   n: number,            // total carrier count
 ): Promise<Uint32Array> {
-  const key = await crypto.subtle.importKey('raw', permKey, 'AES-CTR', false, ['encrypt']);
+  const key = await crypto.subtle.importKey('raw', permKey as unknown as ArrayBuffer, 'AES-CTR', false, ['encrypt']);
   const counter = new Uint8Array(16); // counter offset = 0
 
   const zeroBuf = new Uint8Array(n * 4);

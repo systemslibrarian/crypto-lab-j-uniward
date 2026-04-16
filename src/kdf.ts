@@ -17,11 +17,11 @@ async function hkdfExpand(
   length: number,
 ): Promise<Uint8Array> {
   // Import IKM as HKDF key material
-  const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  const key = await crypto.subtle.importKey('raw', ikm as unknown as ArrayBuffer, 'HKDF', false, ['deriveBits']);
   // Zero-filled salt (IKM is already high-entropy from PBKDF2)
   const salt = new Uint8Array(32);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt, info },
+    { name: 'HKDF', hash: 'SHA-256', salt: salt as unknown as ArrayBuffer, info: info as unknown as ArrayBuffer },
     key,
     length * 8,
   );
@@ -35,7 +35,7 @@ export async function deriveSTCKeys(
   const enc = new TextEncoder();
   const passphraseKey = await crypto.subtle.importKey(
     'raw',
-    enc.encode(passphrase),
+    enc.encode(passphrase) as unknown as ArrayBuffer,
     'PBKDF2',
     false,
     ['deriveBits'],
@@ -43,7 +43,7 @@ export async function deriveSTCKeys(
 
   // PBKDF2-SHA-256, 600,000 iterations → 32-byte master key
   const masterBits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt, iterations: 600_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as unknown as ArrayBuffer, iterations: 600_000, hash: 'SHA-256' },
     passphraseKey,
     256,
   );
