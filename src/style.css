@@ -427,6 +427,40 @@ main {
 .dropzone-icon { font-size: 2rem; display: block; margin-bottom: var(--space-sm); }
 .dropzone-hint { font-size: 0.8rem; margin-top: var(--space-xs); display: block; }
 
+.load-progress {
+  margin-top: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--tag-bg) 72%, var(--bg-panel));
+  border: 1px solid var(--input-focus);
+}
+
+.load-progress-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--tag-text);
+  margin-bottom: var(--space-sm);
+}
+
+.load-progress-bar {
+  position: relative;
+  overflow: hidden;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--input-focus) 18%, transparent);
+  margin-bottom: var(--space-sm);
+}
+
+.load-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 -35%;
+  width: 35%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, var(--input-focus) 25%, var(--tag-text) 70%, transparent 100%);
+  animation: progress-slide 1.1s ease-in-out infinite;
+}
+
 /* ─── Image Preview ──────────────────────────────────────────────────────── */
 
 .image-wrap {
@@ -1012,6 +1046,11 @@ footer .scripture {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes progress-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(320%); }
 }
 
 .spinner {

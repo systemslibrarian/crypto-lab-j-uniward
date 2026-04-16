@@ -15,6 +15,9 @@ const fileInput     = document.getElementById('file-input') as HTMLInputElement;
 const coverCanvas   = document.getElementById('cover-canvas') as HTMLCanvasElement;
 const heatmapCanvas = document.getElementById('heatmap-canvas') as HTMLCanvasElement;
 const imageInfo     = document.getElementById('image-info')!;
+const loadProgress  = document.getElementById('image-load-progress')!;
+const loadProgressLabel = document.getElementById('image-load-progress-label')!;
+const loadProgressDetail = document.getElementById('image-load-progress-detail')!;
 const capacityTable = document.getElementById('capacity-table')!;
 const heatmapRow    = document.getElementById('heatmap-toggle-row')!;
 const heatmapCb     = document.getElementById('heatmap-checkbox') as HTMLInputElement;
@@ -22,14 +25,34 @@ const embedBtn      = document.getElementById('embed-btn') as HTMLButtonElement;
 const postEmbed     = document.getElementById('post-embed')!;
 const suitability   = document.getElementById('image-suitability')!;
 
+let isLoadingImage = false;
+
 // ─── Callbacks (set by orchestrator) ──────────────────────────────────────────
 
 let onImageLoaded: (() => void) | null = null;
 export function setOnImageLoaded(cb: () => void): void { onImageLoaded = cb; }
 
+function setLoadProgress(step: string, detail: string): void {
+  loadProgressLabel.textContent = step;
+  loadProgressDetail.textContent = detail;
+  loadProgress.classList.remove('hidden');
+  dropzone.setAttribute('aria-busy', 'true');
+}
+
+function clearLoadProgress(): void {
+  loadProgress.classList.add('hidden');
+  dropzone.removeAttribute('aria-busy');
+}
+
+async function nextPaint(): Promise<void> {
+  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+}
+
 // ─── Image loading ───────────────────────────────────────────────────────────
 
 export async function loadImage(file: File): Promise<void> {
+  if (isLoadingImage) return;
+
   if (
     !file.type.includes('jpeg') &&
     !file.name.toLowerCase().endsWith('.jpg') &&
@@ -40,9 +63,21 @@ export async function loadImage(file: File): Promise<void> {
   }
 
   try {
-    showAlert(imageInfo, '⏳ Decoding JPEG and computing wavelet costs…', 'info');
+    isLoadingImage = true;
+    embedBtn.disabled = true;
+    loadSampleBtn && (loadSampleBtn.disabled = true);
+    imageInfo.innerHTML = '';
+    suitability.innerHTML = '';
+    capacityTable.innerHTML = '';
+    heatmapRow.classList.add('hidden');
+    setLoadProgress('Loading JPEG…', 'Reading the uploaded image into memory.');
+    await nextPaint();
+
     state.origBuffer    = await file.arrayBuffer();
     state.coverFileName = file.name.replace(/\.[^.]+$/, '');
+
+    setLoadProgress('Decoding JPEG structure…', 'Parsing blocks, coefficients, and quantization tables.');
+    await nextPaint();
 
     state.decoded = decode(state.origBuffer);
     resetEmbedState();
@@ -84,18 +119,17 @@ export async function loadImage(file: File): Promise<void> {
       suitability.innerHTML = '<span class="badge badge-safe">Good carrier</span> <span class="text-muted">Rich texture — ideal for adaptive embedding</span>';
     }
 
-    // Compute wavelet costs — use a separate status element so image info is not overwritten
-    const costStatus = document.createElement('div');
-    costStatus.className = 'alert alert-info';
-    costStatus.textContent = '⏳ Computing J-UNIWARD distortion cost map…';
-    imageInfo.appendChild(costStatus);
-    await new Promise(r => setTimeout(r, 10));
+    setLoadProgress(
+      'Computing J-UNIWARD distortion cost map…',
+      'Running the wavelet-domain cost model. This can take a moment on larger images.',
+    );
+    await nextPaint();
 
     const bW = state.decoded.lumaBlocksWide;
     const bH = state.decoded.lumaBlocksHigh;
     state.costs = await computeCostMatrix(state.decoded.lumaPixels, state.decoded.quantTable, bW, bH);
 
-    costStatus.remove();
+    clearLoadProgress();
     embedBtn.disabled = false;
 
     const doneStatus = document.createElement('div');
@@ -106,7 +140,11 @@ export async function loadImage(file: File): Promise<void> {
     heatmapRow.classList.remove('hidden');
     onImageLoaded?.();
   } catch (err) {
+    clearLoadProgress();
     showAlert(imageInfo, `Error loading JPEG: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  } finally {
+    isLoadingImage = false;
+    loadSampleBtn && (loadSampleBtn.disabled = false);
   }
 }
 
@@ -155,10 +193,15 @@ const SAMPLES = [
 
 const loadSampleBtn = document.getElementById('load-sample') as HTMLButtonElement | null;
 
-export async function loadNextSample(): Promise<void> {
+export async function loadNextSample(): Promise<boolean> {
+  if (isLoadingImage) return false;
+
   state.sampleIdx = (state.sampleIdx + 1) % SAMPLES.length;
   const sample = SAMPLES[state.sampleIdx];
   try {
+    setLoadProgress('Loading sample image…', `Fetching ${sample.label.toLowerCase()} from the bundled demo set.`);
+    await nextPaint();
+
     const res = await fetch(sample.path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
@@ -175,8 +218,11 @@ export async function loadNextSample(): Promise<void> {
     lbl.textContent = sample.label;
 
     if (loadSampleBtn) loadSampleBtn.textContent = 'Next Sample →';
+    return true;
   } catch (err) {
+    clearLoadProgress();
     showAlert(imageInfo, `Could not load sample: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    return false;
   }
 }
 

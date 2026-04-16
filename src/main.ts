@@ -35,13 +35,23 @@ setOnImageLoaded(() => {
 
 const quickDemoBtn = document.getElementById('quick-demo-btn');
 quickDemoBtn?.addEventListener('click', async () => {
+  const originalLabel = quickDemoBtn.innerHTML;
   quickDemoBtn.classList.add('loading');
-  await loadNextSample();
-  prefillForDemo();
-  quickDemoBtn.classList.remove('loading');
+  quickDemoBtn.setAttribute('aria-busy', 'true');
+  quickDemoBtn.innerHTML = '<span class="spinner"></span> Loading demo…';
 
-  // Scroll to embed section
-  document.getElementById('panel-b-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    const loaded = await loadNextSample();
+    if (!loaded) return;
+    prefillForDemo();
+
+    // Scroll to embed section
+    document.getElementById('panel-b-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } finally {
+    quickDemoBtn.classList.remove('loading');
+    quickDemoBtn.removeAttribute('aria-busy');
+    quickDemoBtn.innerHTML = originalLabel;
+  }
 });
 
 // ─── Onboarding dismiss ─────────────────────────────────────────────────────

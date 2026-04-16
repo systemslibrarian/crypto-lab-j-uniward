@@ -104,6 +104,17 @@
                 <span class="dropzone-hint">or click to browse — JPEG only</span>
               </div>
 
+              <div id="image-load-progress" class="load-progress hidden" role="status" aria-live="polite" aria-atomic="true">
+                <div class="load-progress-head">
+                  <span class="spinner" aria-hidden="true"></span>
+                  <strong id="image-load-progress-label">Preparing image…</strong>
+                </div>
+                <div class="load-progress-bar" aria-hidden="true">
+                  <span class="load-progress-fill"></span>
+                </div>
+                <div id="image-load-progress-detail" class="text-muted text-xs">Reading JPEG data and setting up the distortion model.</div>
+              </div>
+
               <div id="image-info"></div>
               <div id="image-suitability" class="suitability-row"></div>
               <div id="capacity-table"></div>
