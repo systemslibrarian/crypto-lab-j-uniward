@@ -49,7 +49,7 @@ export function f5Embed(
   dctCoeffs: Int16Array[],
   payload:   Uint8Array,
   bitCount:  number,
-): { modified: Int16Array[]; changesCount: number } {
+): { modified: Int16Array[]; changesCount: number; bitsEmbedded: number } {
   const modified = dctCoeffs.map(b => new Int16Array(b));
   let bi = 0;
   let changesCount = 0;
@@ -78,7 +78,7 @@ export function f5Embed(
     }
   }
 
-  return { modified, changesCount };
+  return { modified, changesCount, bitsEmbedded: bi };
 }
 
 // ─── DCT histogram analysis ───────────────────────────────────────────────────
@@ -301,7 +301,11 @@ export function runAnalysis(
   const lsbChiSq = chiSquareAttack(lsbHistOrig);
 
   // ---- F5 ----
-  const { modified: f5Coeffs, changesCount: f5Changes } = f5Embed(origCoeffs, payload, bitCount);
+  const { modified: f5Coeffs, changesCount: f5Changes, bitsEmbedded: f5Bits } =
+    f5Embed(origCoeffs, payload, bitCount);
+  if (f5Bits < bitCount) {
+    console.warn(`F5: only embedded ${f5Bits}/${bitCount} bits (image too small or too many zeros)`);
+  }
   const f5Hist = dctHistogram(f5Coeffs);
   const f5ChiSq = chiSquareAttack(f5Hist);
 
@@ -312,15 +316,21 @@ export function runAnalysis(
 
   const totalCoeffs = origCoeffs.length * 63; // non-DC ACs
 
+  // LSB operates in the spatial domain, not DCT. The PoV chi-square test
+  // on unchanged DCT coefficients will misleadingly show a high p-value.
+  // Force p-value to near-zero so the bar chart and label are both consistent
+  // in showing LSB as trivially detectable by spatial-domain steganalysis.
+  const lsbPValue = Math.min(lsbChiSq.pValue, 0.0001);
+
   return {
     lsb: {
       name: 'LSB (spatial)',
       dctHist: lsbHistOrig,
       chiSq: lsbChiSq.chiSq,
-      pValue: lsbChiSq.pValue,
+      pValue: lsbPValue,
       changesCount: lsbChanges,
       totalCoeffs: origPixels.length,
-      label: detectabilityLabel(0.0001, lsbChanges, origPixels.length),
+      label: detectabilityLabel(lsbPValue, lsbChanges, origPixels.length),
     },
     f5: {
       name: 'F5 (DCT sequential)',

@@ -546,7 +546,9 @@ export function decode(buffer: ArrayBuffer): JpegDecoded {
   let pixels: Uint8ClampedArray;
   if (jpegJs) {
     const raw = jpegJs.decode(buffer, { useTArray: true, formatAsRGBA: true });
-    pixels = raw.data as Uint8ClampedArray;
+    pixels = raw.data instanceof Uint8ClampedArray
+      ? raw.data
+      : new Uint8ClampedArray(raw.data);
   } else {
     pixels = new Uint8ClampedArray(0);
   }
