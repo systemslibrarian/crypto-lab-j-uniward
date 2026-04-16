@@ -158,6 +158,11 @@ async function loadImage(file: File): Promise<void> {
     drawImageOnCanvas(coverCanvas, decoded.pixels, decoded.width, decoded.height);
     heatmapCanvas.style.display = 'none';
 
+    // Clear stale post-embed display and analysis from previous embed
+    postEmbed.classList.add('hidden');
+    analysisResult = null;
+    updateAnalysisPanel('juniward');
+
     // Image info
     const nzac = countNZAC(decoded.dctCoeffs);
     imageInfo.innerHTML = '';
@@ -223,10 +228,11 @@ heatmapCheckbox.addEventListener('change', () => {
 
 // ─── Sample image loader (cycling) ────────────────────────────────────────────
 
+const BASE = (import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL;
 const SAMPLES = [
-  { path: '/crypto-lab-j-uniward/samples/sample-grass.jpg',    label: 'Textured (grass)' },
-  { path: '/crypto-lab-j-uniward/samples/sample-smooth.jpg',   label: 'Smooth (gradient)' },
-  { path: '/crypto-lab-j-uniward/samples/sample-portrait.jpg', label: 'Mixed (geometric)' },
+  { path: `${BASE}samples/sample-grass.jpg`,    label: 'Textured (grass)' },
+  { path: `${BASE}samples/sample-smooth.jpg`,   label: 'Smooth (gradient)' },
+  { path: `${BASE}samples/sample-portrait.jpg`, label: 'Mixed (geometric)' },
 ];
 let sampleIdx = -1;
 
