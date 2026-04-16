@@ -122,6 +122,13 @@ function setupDropzone(): void {
     const file = e.dataTransfer?.files[0];
     if (file) loadImage(file);
   });
+  // Keyboard: Enter or Space opens file picker
+  dropzone.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
   fileInput.addEventListener('change', () => {
     if (fileInput.files?.[0]) loadImage(fileInput.files[0]);
   });
@@ -223,21 +230,48 @@ document.getElementById('load-sample')?.addEventListener('click', async () => {
   }
 });
 
-// ─── Panel B tabs ─────────────────────────────────────────────────────────────
+// ─── Panel B tabs (accessible: arrow key navigation + ARIA selected) ────────────
 
-tabEmbed.addEventListener('click', () => {
-  tabEmbed.classList.add('active');
-  tabExtract.classList.remove('active');
-  embedPane.classList.add('active');
-  extractPane.classList.remove('active');
-});
-
-tabExtract.addEventListener('click', () => {
-  tabExtract.classList.add('active');
+function activateTab(tab: HTMLButtonElement, pane: HTMLElement): void {
+  // Deactivate both
   tabEmbed.classList.remove('active');
-  extractPane.classList.add('active');
+  tabEmbed.setAttribute('aria-selected', 'false');
+  tabEmbed.tabIndex = -1;
+  tabExtract.classList.remove('active');
+  tabExtract.setAttribute('aria-selected', 'false');
+  tabExtract.tabIndex = -1;
   embedPane.classList.remove('active');
+  extractPane.classList.remove('active');
+  // Activate target
+  tab.classList.add('active');
+  tab.setAttribute('aria-selected', 'true');
+  tab.tabIndex = 0;
+  tab.focus();
+  pane.classList.add('active');
+}
+
+tabEmbed.addEventListener('click', () => activateTab(tabEmbed, embedPane));
+tabExtract.addEventListener('click', () => activateTab(tabExtract, extractPane));
+
+// Arrow key navigation within tablist
+const tabButtons = [tabEmbed, tabExtract];
+tabButtons.forEach((tab, idx) => {
+  tab.addEventListener('keydown', (e: KeyboardEvent) => {
+    let next = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % tabButtons.length;
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   next = (idx - 1 + tabButtons.length) % tabButtons.length;
+    if (e.key === 'Home') next = 0;
+    if (e.key === 'End')  next = tabButtons.length - 1;
+    if (next >= 0) {
+      e.preventDefault();
+      const target = tabButtons[next];
+      const pane = target === tabEmbed ? embedPane : extractPane;
+      activateTab(target, pane);
+    }
+  });
 });
+// Set initial tabindex: active tab = 0, inactive = -1
+tabExtract.tabIndex = -1;
 
 // Rate slider
 rateSlider.addEventListener('input', () => {
@@ -403,8 +437,9 @@ let activeMethod: 'lsb' | 'f5' | 'juniward' = 'juniward';
 
 methodTabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    methodTabs.forEach(t => t.classList.remove('active'));
+    methodTabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-pressed', 'false'); });
     tab.classList.add('active');
+    tab.setAttribute('aria-pressed', 'true');
     activeMethod = (tab.dataset['method'] as 'lsb' | 'f5' | 'juniward') ?? 'juniward';
     updateAnalysisPanel(activeMethod);
   });

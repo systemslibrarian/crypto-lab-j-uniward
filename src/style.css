@@ -74,7 +74,36 @@
 /* ─── Reset & Base ──────────────────────────────────────────────────────── */
 
 *, *::before, *::after { box-sizing: border-box; }
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
+/* Skip to main content link */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 1000;
+  padding: 0.75rem 1.25rem;
+  background: var(--accent-color);
+  color: var(--accent-fg);
+  font-weight: 600;
+  border-radius: 0 0 6px 6px;
+  text-decoration: none;
+  transition: top 0.15s;
+}
+.skip-link:focus {
+  top: 0;
+}
 html, body {
   margin: 0;
   padding: 0;
@@ -120,10 +149,11 @@ header {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 1rem 1.5rem;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
 }
 
 header .logo {
@@ -140,8 +170,10 @@ header .tagline {
 }
 
 #theme-toggle {
-  width: 2.6rem;
-  height: 2.6rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 50%;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
@@ -153,6 +185,7 @@ header .tagline {
   justify-content: center;
   flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 #theme-toggle:hover {
   background: var(--tab-active-bg);
@@ -311,6 +344,7 @@ main {
 
 .tab-btn {
   padding: 0.5rem 1rem;
+  min-height: 44px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -318,6 +352,7 @@ main {
   font-size: 0.9rem;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tab-btn:hover { color: var(--text-primary); }
@@ -350,12 +385,13 @@ input[type='text'],
 input[type='password'],
 textarea {
   width: 100%;
-  padding: 0.45rem 0.65rem;
+  padding: 0.55rem 0.75rem;
+  min-height: 44px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 1rem;
   transition: border-color 0.15s;
   font-family: inherit;
 }
@@ -363,7 +399,8 @@ textarea {
 input[type='text']:focus,
 input[type='password']:focus,
 textarea:focus {
-  outline: none;
+  outline: 2px solid var(--input-focus);
+  outline-offset: 1px;
   border-color: var(--input-focus);
 }
 
@@ -391,7 +428,9 @@ input[type='range'] {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1.1rem;
+  min-height: 44px;
+  min-width: 44px;
   border-radius: 6px;
   border: 1px solid transparent;
   font-size: 0.9rem;
@@ -399,6 +438,7 @@ input[type='range'] {
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
   text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:disabled {
@@ -502,15 +542,18 @@ input[type='range'] {
 }
 
 .method-tab {
-  padding: 0.3rem 0.65rem;
+  padding: 0.4rem 0.75rem;
+  min-height: 44px;
+  min-width: 44px;
   border-radius: 20px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .method-tab.active,
@@ -616,11 +659,30 @@ footer .scripture {
   outline-offset: 2px;
 }
 
+/* Remove default focus for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ─── Responsive utilities ──────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
   header { padding: 0.75rem 1rem; }
   header .tagline { display: none; }
+  header .eco-links { order: 10; width: 100%; justify-content: center; }
   main { padding: 0.75rem; }
   .panel-body { padding: 0.75rem; }
+  .btn-row { flex-direction: column; }
+  .btn-row .btn { width: 100%; justify-content: center; }
+}
+
+/* ─── Reduced motion ───────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

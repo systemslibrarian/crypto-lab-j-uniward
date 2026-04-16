@@ -18,10 +18,11 @@
     </script>
   </head>
   <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
     <div id="app">
 
       <!-- ─── Header ──────────────────────────────────────────────────── -->
-      <header>
+      <header role="banner">
         <span class="logo">🔐 J-UNIWARD</span>
         <span class="tagline">
           JPEG steganography — Daubechies-8 wavelet cost &amp; Hamming syndrome embedding
@@ -35,13 +36,13 @@
       </header>
 
       <!-- ─── Main three-panel layout ────────────────────────────────── -->
-      <main>
+      <main id="main-content">
         <div class="panels">
 
           <!-- ── Panel A: Cover Image ───────────────────────────────── -->
-          <div class="panel">
+          <section class="panel" aria-labelledby="panel-a-heading">
             <div class="panel-header">
-              <h2>Panel A — Cover Image</h2>
+              <h2 id="panel-a-heading">Panel A — Cover Image</h2>
               <button id="load-sample" class="btn btn-secondary" style="font-size:0.78rem; padding:0.3rem 0.6rem;">
                 Load Sample
               </button>
@@ -60,8 +61,8 @@
               <div id="capacity-table"></div>
 
               <div class="image-wrap" style="margin-top:0.75rem;">
-                <canvas id="cover-canvas" style="max-width:100%;border-radius:4px;display:block;"></canvas>
-                <canvas id="heatmap-canvas" class="overlay-canvas" style="display:none;"></canvas>
+                <canvas id="cover-canvas" role="img" aria-label="Cover image preview" style="max-width:100%;border-radius:4px;display:block;"></canvas>
+                <canvas id="heatmap-canvas" role="img" aria-label="J-UNIWARD cost heatmap overlay" class="overlay-canvas" style="display:none;"></canvas>
               </div>
 
               <div id="heatmap-toggle-row" class="toggle-row hidden">
@@ -72,12 +73,12 @@
                 </label>
               </div>
             </div>
-          </div>
+          </section>
 
           <!-- ── Panel B: Embed / Extract ────────────────────────────── -->
-          <div class="panel">
+          <section class="panel" aria-labelledby="panel-b-heading">
             <div class="panel-header">
-              <h2>Panel B — Embed / Extract</h2>
+              <h2 id="panel-b-heading">Panel B — Embed / Extract</h2>
             </div>
             <div class="panel-body">
 
@@ -88,13 +89,13 @@
                 detection-resistant at low payloads.
               </div>
 
-              <div class="tabs">
-                <button id="tab-embed" class="tab-btn active">🔒 Embed</button>
-                <button id="tab-extract" class="tab-btn">🔓 Extract</button>
+              <div class="tabs" role="tablist" aria-label="Embed or Extract mode">
+                <button id="tab-embed" class="tab-btn active" role="tab" aria-selected="true" aria-controls="embed-pane">🔒 Embed</button>
+                <button id="tab-extract" class="tab-btn" role="tab" aria-selected="false" aria-controls="extract-pane">🔓 Extract</button>
               </div>
 
               <!-- Embed pane -->
-              <div id="embed-pane" class="tab-pane active">
+              <div id="embed-pane" class="tab-pane active" role="tabpanel" aria-labelledby="tab-embed">
                 <div class="form-group">
                   <label for="msg-input">Secret Message</label>
                   <textarea id="msg-input" placeholder="Enter your secret message…"
@@ -130,11 +131,11 @@
                   <button id="download-btn" class="btn btn-secondary" disabled>⬇ Download Stego JPEG</button>
                 </div>
 
-                <div id="embed-status" class="hidden" style="margin-top:0.75rem;"></div>
+                <div id="embed-status" class="hidden" role="status" aria-live="polite" style="margin-top:0.75rem;"></div>
               </div>
 
               <!-- Extract pane -->
-              <div id="extract-pane" class="tab-pane">
+              <div id="extract-pane" class="tab-pane" role="tabpanel" aria-labelledby="tab-extract">
                 <p style="font-size:0.85rem; color:var(--text-secondary);">
                   Upload a stego JPEG, enter the key, and click Extract.
                   (If you just embedded above, click Extract without uploading.)
@@ -156,16 +157,16 @@
                   <button id="extract-btn" class="btn btn-primary">🔓 Extract</button>
                 </div>
 
-                <div id="extract-output" class="hidden" style="margin-top:0.75rem;"></div>
+                <div id="extract-output" class="hidden" role="status" aria-live="polite" style="margin-top:0.75rem;"></div>
               </div>
 
             </div>
-          </div>
+          </section>
 
           <!-- ── Panel C: Steganalysis ────────────────────────────────── -->
-          <div class="panel">
+          <section class="panel" aria-labelledby="panel-c-heading">
             <div class="panel-header">
-              <h2>Panel C — Steganalysis Comparison</h2>
+              <h2 id="panel-c-heading">Panel C — Steganalysis Comparison</h2>
             </div>
             <div class="panel-body">
 
@@ -183,13 +184,13 @@
                        aria-label="Analysis payload rate" />
               </div>
 
-              <div class="method-tabs">
-                <button class="method-tab" data-method="lsb">LSB</button>
-                <button class="method-tab" data-method="f5">F5</button>
-                <button class="method-tab active" data-method="juniward">J-UNIWARD</button>
+              <div class="method-tabs" role="group" aria-label="Steganalysis method selector">
+                <button class="method-tab" data-method="lsb" aria-pressed="false">LSB</button>
+                <button class="method-tab" data-method="f5" aria-pressed="false">F5</button>
+                <button class="method-tab active" data-method="juniward" aria-pressed="true">J-UNIWARD</button>
               </div>
 
-              <div id="stats-container">
+              <div id="stats-container" aria-live="polite">
                 <p style="color: var(--text-secondary); font-size: 0.85rem;">
                   Load an image and embed a message to see live steganalysis results.
                 </p>
@@ -199,17 +200,17 @@
                 <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.25rem;">
                   Embedding change map (red = modified block)
                 </p>
-                <canvas id="changes-canvas" style="max-width:100%; border-radius:4px; display:block;"></canvas>
+                <canvas id="changes-canvas" role="img" aria-label="Embedding change heatmap" style="max-width:100%; border-radius:4px; display:block;"></canvas>
               </div>
 
             </div>
-          </div>
+          </section>
 
         </div>
       </main>
 
-      <!-- ─── Footer ─────────────────────────────────────────────────── -->
-      <footer>
+      <!-- ─── Footer ───────────────────────────────────────────────────── -->
+      <footer role="contentinfo">
         <p class="scripture">
           "Whether you eat or drink, or whatever you do, do all to the glory of God." — 1 Corinthians 10:31
         </p>
