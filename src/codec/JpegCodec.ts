@@ -56,6 +56,10 @@ export interface JpegDecoded {
   height: number;
   /** Number of 8×8 luma blocks */
   blockCount: number;
+  /** Luma blocks per row (may be > ceil(width/8) for 4:2:0) */
+  lumaBlocksWide: number;
+  /** Luma block rows (may be > ceil(height/8) for 4:2:0) */
+  lumaBlocksHigh: number;
 }
 
 interface JpegComp {
@@ -96,6 +100,8 @@ interface ParsedJpeg {
   /** Blocks per row and column for each component */
   blocksWide: number[];
   blocksHigh: number[];
+  /** Component indices in SOS scan order */
+  sosCompOrder: number[];
 }
 
 // ─── Huffman helpers ─────────────────────────────────────────────────────────
@@ -217,7 +223,15 @@ class BitWriter {
       const byte = (this.bits << (8 - this.nBits)) & 0xff;
       this.out.push(byte);
       if (byte === 0xff) this.out.push(0x00);
+      this.bits = 0;
+      this.nBits = 0;
     }
+  }
+
+  /** Emit a restart marker (FF D0-D7). Must be called after flush(). */
+  emitRestartMarker(rstIdx: number): void {
+    this.out.push(0xFF);
+    this.out.push(0xD0 + (rstIdx & 7));
   }
 
   getBytes(): Uint8Array {
@@ -479,6 +493,7 @@ function parseJpeg(buffer: ArrayBuffer): ParsedJpeg {
     dctBlocks,
     blocksWide,
     blocksHigh,
+    sosCompOrder,
   };
 }
 
@@ -497,7 +512,8 @@ function idct8x8(block: Int16Array, quant: Uint16Array, out: Float32Array, outOf
   for (let k = 0; k < 64; k++) {
     f[ZZ_TO_NAT[k]] = block[k] * quant[k];
   }
-  // Column-wise 1D IDCT
+  // Column-wise 1D IDCT (write to separate buffer to avoid overwriting input)
+  const g = new Float32Array(64);
   for (let x = 0; x < 8; x++) {
     for (let y = 0; y < 8; y++) {
       let sum = 0;
@@ -505,7 +521,7 @@ function idct8x8(block: Int16Array, quant: Uint16Array, out: Float32Array, outOf
         const cv = v === 0 ? Math.SQRT1_2 : 1.0;
         sum += cv * f[v * 8 + x] * COS_TABLE[v * 8 + y];
       }
-      f[y * 8 + x] = 0.5 * sum;
+      g[y * 8 + x] = 0.5 * sum;
     }
   }
   // Row-wise 1D IDCT
@@ -514,7 +530,7 @@ function idct8x8(block: Int16Array, quant: Uint16Array, out: Float32Array, outOf
       let sum = 0;
       for (let u = 0; u < 8; u++) {
         const cu = u === 0 ? Math.SQRT1_2 : 1.0;
-        sum += cu * f[y * 8 + u] * COS_TABLE[u * 8 + x];
+        sum += cu * g[y * 8 + u] * COS_TABLE[u * 8 + x];
       }
       out[outOff + y * stride + x] = 0.5 * sum;
     }
@@ -536,18 +552,22 @@ export function decode(buffer: ArrayBuffer): JpegDecoded {
   }
 
   const parsed = parseJpeg(buffer);
-  const { width, height, components, quantTables, dctBlocks, blocksWide } = parsed;
+  const { width, height, components, quantTables, dctBlocks, blocksWide, blocksHigh } = parsed;
 
   // Luma component is index 0 (Y in YCbCr, or the only component in greyscale)
   const lumaCI = 0;
   const lumaQuant = quantTables[components[lumaCI].qId];
   const lumaBlocks = dctBlocks[lumaCI];
   const bW = blocksWide[lumaCI];
+  const bH = blocksHigh[lumaCI];
   const blockCount = lumaBlocks.length;
 
   // Reconstruct luma spatial image via IDCT
-  const lumaPixels = new Float32Array(width * height);
-  const stride = bW * 8;
+  // Allocate with padded block-grid dimensions to avoid out-of-bounds writes
+  const paddedW = bW * 8;
+  const paddedH = bH * 8;
+  const lumaPixels = new Float32Array(paddedW * paddedH);
+  const stride = paddedW;
   for (let bi = 0; bi < blockCount; bi++) {
     const bRow = Math.floor(bi / bW);
     const bCol = bi % bW;
@@ -562,6 +582,8 @@ export function decode(buffer: ArrayBuffer): JpegDecoded {
     width,
     height,
     blockCount,
+    lumaBlocksWide: bW,
+    lumaBlocksHigh: bH,
   };
 }
 
@@ -577,8 +599,8 @@ function encodeEntropy(parsed: ParsedJpeg, newDctBlocks: Int16Array[][]): Uint8A
   const mcuCols = Math.ceil(parsed.width  / mcuW);
   const mcuRows = Math.ceil(parsed.height / mcuH);
 
-  // Reconstruct sosCompOrder from component dcId/acId assignments
-  const sosCompOrder = components.map((_, i) => i);
+  // Use the actual SOS scan order from the original JPEG
+  const sosCompOrder = parsed.sosCompOrder;
 
   const dcPred = new Int32Array(components.length);
   const writer = new BitWriter();
@@ -602,15 +624,15 @@ function encodeEntropy(parsed: ParsedJpeg, newDctBlocks: Int16Array[][]): Uint8A
   }
 
   let mcuIdx = 0;
-  const rstOut: number[] = []; // RST marker positions (in output bytes) — rebuilt as needed
+  let rstCounter = 0;
 
   for (let mRow = 0; mRow < mcuRows; mRow++) {
     for (let mCol = 0; mCol < mcuCols; mCol++) {
       // Insert restart marker
       if (restartInterval > 0 && mcuIdx > 0 && mcuIdx % restartInterval === 0) {
         writer.flush();
-        // RST marker will be appended by the caller after this chunk
-        rstOut.push(writer.getBytes().length);
+        writer.emitRestartMarker(rstCounter);
+        rstCounter = (rstCounter + 1) & 7;
         dcPred.fill(0);
       }
 
@@ -659,17 +681,7 @@ function encodeEntropy(parsed: ParsedJpeg, newDctBlocks: Int16Array[][]): Uint8A
     }
   }
   writer.flush();
-
-  // Build the new entropy data with restart markers re-inserted
-  const entropyBytes = writer.getBytes();
-  if (restartInterval === 0) return entropyBytes;
-
-  // Re-insert RST markers between intervals
-  // This is a simplification: for most common cases, restart markers
-  // are evenly spaced. Here we re-insert them at the byte boundaries
-  // tracked above. For correctness we'd need to track flush points,
-  // but the BitWriter above handles it per-interval so we just concatenate.
-  return entropyBytes;
+  return writer.getBytes();
 }
 
 // ─── Public encode API ────────────────────────────────────────────────────────

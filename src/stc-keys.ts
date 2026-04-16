@@ -22,7 +22,7 @@ export async function buildHatMatrix(
   const key = await crypto.subtle.importKey('raw', hatKey as unknown as ArrayBuffer, 'AES-CTR', false, ['encrypt']);
   const cols = new Uint32Array(w);
   let collected = 0;
-  let counterOffset = 0;
+  let counterBlock = 0; // tracks actual AES-CTR blocks consumed
 
   while (collected < w) {
     const needed = w - collected;
@@ -31,7 +31,7 @@ export async function buildHatMatrix(
     const counter = new Uint8Array(16);
     // Big-endian uint32 in bytes 12–15
     const dv = new DataView(counter.buffer);
-    dv.setUint32(12, counterOffset, false);
+    dv.setUint32(12, counterBlock, false);
 
     const zeroBuf = new Uint8Array(blockBytes);
     const encrypted = await crypto.subtle.encrypt(
@@ -40,13 +40,15 @@ export async function buildHatMatrix(
       zeroBuf,
     );
 
+    // Track how many AES blocks this call consumed to avoid keystream reuse
+    counterBlock += Math.ceil(blockBytes / 16);
+
     const words = new Uint16Array(encrypted);
     for (let i = 0; i < words.length && collected < w; i++) {
       const val = words[i] & MASK;
       if (val === 0) continue; // rejection sampling: discard zero columns
       cols[collected++] = val;
     }
-    counterOffset++;
   }
 
   // Assert all columns non-zero

@@ -186,8 +186,8 @@ async function loadImage(file: File): Promise<void> {
       </table>`;
 
     // Compute wavelet costs in a small async timeout to keep UI responsive
-    const blocksWide = Math.ceil(decoded.width  / 8);
-    const blocksHigh = Math.ceil(decoded.height / 8);
+    const blocksWide = decoded.lumaBlocksWide;
+    const blocksHigh = decoded.lumaBlocksHigh;
     showAlert(imageInfo, '⏳ Computing J-UNIWARD distortion cost map…', 'info');
     await new Promise(r => setTimeout(r, 10));
 
@@ -214,8 +214,8 @@ const heatmapCheckbox   = document.getElementById('heatmap-checkbox') as HTMLInp
 
 heatmapCheckbox.addEventListener('change', () => {
   if (!decoded || !costs) return;
-  const bW = Math.ceil(decoded.width  / 8);
-  const bH = Math.ceil(decoded.height / 8);
+  const bW = decoded.lumaBlocksWide;
+  const bH = decoded.lumaBlocksHigh;
   if (heatmapCheckbox.checked) {
     renderCostHeatmap(heatmapCanvas, costs, decoded.quantTable, bW, bH);
     heatmapCanvas.style.width  = coverCanvas.width  + 'px';
@@ -442,8 +442,8 @@ embedBtn.addEventListener('click', async () => {
         );
         updateAnalysisPanel('juniward');
         // Render change heatmap
-        const bW = Math.ceil(decoded.width  / 8);
-        const bH = Math.ceil(decoded.height / 8);
+        const bW = decoded.lumaBlocksWide;
+        const bH = decoded.lumaBlocksHigh;
         renderChangesHeatmap(changesCanvas, decoded.dctCoeffs, result.modifiedCoeffs, bW, bH);
       } catch (_) { /* analysis non-critical */ }
     }
@@ -466,7 +466,7 @@ downloadBtn.addEventListener('click', () => {
   a.href     = url;
   a.download = `stego.jpg`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
 // ─── Extract ─────────────────────────────────────────────────────────────────
@@ -550,8 +550,8 @@ extractBtn.addEventListener('click', async () => {
     extractBtn.innerHTML = '<span class="spinner"></span> Extracting…';
 
     // We need cost matrix from the stego image itself
-    const bW = Math.ceil(stegoD.width  / 8);
-    const bH = Math.ceil(stegoD.height / 8);
+    const bW = stegoD.lumaBlocksWide;
+    const bH = stegoD.lumaBlocksHigh;
     const stegoCosts = computeCostMatrix(stegoD.lumaPixels, stegoD.quantTable, bW, bH);
 
     const result = await extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key, extractSalt, extractRate);
