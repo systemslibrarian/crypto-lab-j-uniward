@@ -1,18 +1,30 @@
 /**
- * StegAnalysis — Three-way steganalysis comparison
+ * StegAnalysis — Three-way adaptive-placement comparison
  *
- * Compares the statistical detectability of three JPEG steganography methods
- * at the same payload size:
- *   1. LSB  — naïve spatial-domain least-significant-bit replacement
- *   2. F5   — sequential DCT coefficient embedding (no cost function)
- *   3. J-UNIWARD — this implementation (adaptive wavelet cost + full STC)
+ * Compares LSB, F5, and J-UNIWARD at the same payload by asking the question
+ * that actually predicts resistance to modern steganalysis:
  *
- * Statistics:
- *   - Chi-square test on adjacent DCT coefficient histogram pairs (PoV attack)
- *   - First-order DCT histogram (block coefficient distribution)
- *   - Total coefficient change count
- *   - Detectability label
+ *   **Where do the changes land relative to image texture?**
+ *
+ * J-UNIWARD is designed to minimise a wavelet-domain distortion — concentrating
+ * changes in textured, hard-to-model coefficients. LSB and F5 are not. We make
+ * that consequence measurable and honest:
+ *
+ *   - LSB edits are applied in the spatial domain and re-transformed back into
+ *     the quantised DCT domain (a real forward DCT), so its footprint is
+ *     compared on equal terms — including the DC/flat coefficients it blindly
+ *     corrupts.
+ *   - Every method's changes are ranked against the J-UNIWARD cost map: the
+ *     "exposure" of a change is the percentile of its coefficient's cost (0% =
+ *     cheapest / most textured, 100% = costliest / smoothest).
+ *
+ * We deliberately do NOT report a single chi-square "p-value": first-order
+ * histogram tests barely separate DCT-domain methods at low payloads, and would
+ * misleadingly rank a method that makes fewer ±1 changes as "safer" regardless
+ * of where they land. Placement is the honest, discriminating signal.
  */
+
+import { forwardDCTQuantize } from '../codec/JpegCodec.ts';
 
 // ─── LSB embedding (spatial domain) ─────────────────────────────────────────
 
@@ -42,7 +54,7 @@ export function lsbEmbed(
 
 /**
  * F5-like sequential DCT embedding: embed bits into non-zero AC DCT coefficients
- * in sequential order, with ±1 modification.  No cost function.
+ * in sequential order, with ±1 modification. No cost function.
  * Coefficients that reach 0 after modification are "shrunk" (skipped).
  */
 export function f5Embed(
@@ -99,132 +111,155 @@ export function dctHistogram(dctCoeffs: Int16Array[]): Int32Array {
   return hist;
 }
 
-// ─── Chi-square test (Pairs of Values attack) ────────────────────────────────
+// ─── Cost-percentile ranking ──────────────────────────────────────────────────
+
+const WET = 1e7; // costs at or above this are "wet" (effectively non-embeddable)
+
+/** Sorted list of finite AC costs + a percentile lookup, for ranking changes. */
+function buildCostRanker(costs: Float64Array[]): (c: number) => number {
+  const flat: number[] = [];
+  for (const block of costs) {
+    for (let zi = 1; zi < 64; zi++) {
+      const c = block[zi];
+      if (isFinite(c) && c < WET) flat.push(c);
+    }
+  }
+  flat.sort((a, b) => a - b);
+  const n = flat.length || 1;
+  return (c: number): number => {
+    // fraction of coefficients strictly cheaper than c
+    let lo = 0, hi = flat.length;
+    while (lo < hi) { const m = (lo + hi) >>> 1; if (flat[m] < c) lo = m + 1; else hi = m; }
+    return lo / n;
+  };
+}
+
+// ─── Per-method placement analysis ────────────────────────────────────────────
 
 /**
- * Chi-square attack on DCT histograms.
- * For LSB embedding, pairs (2k, 2k+1) should become equally frequent.
- * Computes χ² statistic over adjacent pairs in the histogram.
- *
- * Returns { chiSq, pValue, degreesOfFreedom }
+ * Compare a method's modified coefficients against the cover and score *where*
+ * its changes landed relative to the J-UNIWARD cost map.
  */
-export function chiSquareAttack(hist: Int32Array): { chiSq: number; pValue: number; df: number } {
-  const offset = 128;
-  let chiSq = 0;
-  let df = 0;
-
-  // Pairs: (2k, 2k+1) for k = -64..63 (non-zero values only)
-  for (let k = -64; k < 64; k++) {
-    const i1 = 2 * k + offset;
-    const i2 = 2 * k + 1 + offset;
-    if (i1 < 0 || i2 >= hist.length) continue;
-    const n1 = hist[i1];
-    const n2 = hist[i2];
-    if (n1 + n2 === 0) continue;
-    const expected = (n1 + n2) / 2;
-    chiSq += ((n1 - expected) ** 2 + (n2 - expected) ** 2) / expected;
-    df++;
-  }
-
-  // p-value approximation using chi-square CDF for df degrees of freedom
-  const pValue = chiSquarePValue(chiSq, df);
-  return { chiSq, pValue, df };
-}
-
-function chiSquarePValue(x: number, df: number): number {
-  if (!Number.isFinite(x) || df <= 0 || x < 0) return 1;
-  if (x === 0) return 1;
-
-  // Wilson-Hilferty transform is stable enough for this demo and avoids the
-  // numerical instability that produced NaN in the previous gamma-series path.
-  const z = (Math.pow(x / df, 1 / 3) - (1 - 2 / (9 * df))) / Math.sqrt(2 / (9 * df));
-  const pValue = 1 - normalCDF(z);
-  if (!Number.isFinite(pValue)) return x > df ? 0 : 1;
-  return Math.min(1, Math.max(0, pValue));
-}
-
-function normalCDF(z: number): number {
-  // Abramowitz & Stegun approximation
-  const t = 1 / (1 + 0.2316419 * Math.abs(z));
-  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 +
-               t * (-1.821255978 + t * 1.330274429))));
-  const phi = (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * z * z) * poly;
-  return z >= 0 ? 1 - phi : phi;
-}
-
-// ─── Change count analysis ────────────────────────────────────────────────────
-
-export function countChanges(origCoeffs: Int16Array[], modCoeffs: Int16Array[]): number {
-  let n = 0;
-  for (let bi = 0; bi < origCoeffs.length; bi++) {
-    for (let zi = 0; zi < 64; zi++) {
-      if (origCoeffs[bi][zi] !== modCoeffs[bi][zi]) n++;
-    }
-  }
-  return n;
-}
-
-// ─── Change heatmap ───────────────────────────────────────────────────────────
-
-export function renderChangesHeatmap(
-  canvas: HTMLCanvasElement,
+function analysePlacement(
   origCoeffs: Int16Array[],
   modCoeffs:  Int16Array[],
-  blocksWide: number,
-  blocksHigh: number,
-): void {
-  const W = blocksWide * 8;
-  const H = blocksHigh * 8;
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d')!;
-  const imgData = ctx.createImageData(W, H);
-  const d = imgData.data;
+  costs:      Float64Array[],
+  rank:       (c: number) => number,
+): { changesCount: number; structHits: number; meanExposure: number; changedBlocks: Uint8Array } {
+  let changesCount = 0; // AC, embeddable
+  let structHits   = 0; // DC or wet-coefficient modifications (structurally conspicuous)
+  let exposureSum  = 0;
+  const changedBlocks = new Uint8Array(origCoeffs.length); // 0=none, 1=textured change, 2=structural
 
   for (let bi = 0; bi < origCoeffs.length; bi++) {
-    const bRow = Math.floor(bi / blocksWide);
-    const bCol = bi % blocksWide;
-    let changed = false;
-    for (let zi = 1; zi < 64; zi++) {
-      if (origCoeffs[bi][zi] !== modCoeffs[bi][zi]) { changed = true; break; }
-    }
-    for (let px = 0; px < 8; px++) {
-      for (let py = 0; py < 8; py++) {
-        const ii = ((bRow * 8 + px) * W + bCol * 8 + py) * 4;
-        if (changed) {
-          // Red with 40% opacity
-          d[ii]     = 255;
-          d[ii + 1] = 60;
-          d[ii + 2] = 0;
-          d[ii + 3] = 102; // ~40%
-        } else {
-          // Gray with 10% opacity
-          d[ii]     = 128;
-          d[ii + 1] = 128;
-          d[ii + 2] = 128;
-          d[ii + 3] = 26; // ~10%
-        }
-      }
+    const o = origCoeffs[bi];
+    const m = modCoeffs[bi];
+    for (let zi = 0; zi < 64; zi++) {
+      if (o[zi] === m[zi]) continue;
+      if (zi === 0) { structHits++; changedBlocks[bi] = 2; continue; } // DC term — maximally conspicuous
+      const c = costs[bi][zi];
+      if (!isFinite(c) || c >= WET) { structHits++; if (changedBlocks[bi] !== 2) changedBlocks[bi] = 2; continue; }
+      exposureSum += rank(c);
+      changesCount++;
+      if (changedBlocks[bi] === 0) changedBlocks[bi] = 1;
     }
   }
-  ctx.putImageData(imgData, 0, 0);
+
+  const meanExposure = changesCount > 0 ? exposureSum / changesCount : 0;
+  return { changesCount, structHits, meanExposure, changedBlocks };
 }
 
 // ─── Detectability label ──────────────────────────────────────────────────────
 
-export type DetectLabel = 'Trivially Detectable' | 'Likely Detectable' | 'Moderate Risk' | 'Resistant';
+export type DetectLabel = 'Resistant' | 'Moderate' | 'Detectable' | 'Negligible';
 
+/**
+ * Qualitative rating from placement. Lower exposure (changes hidden in textured
+ * coefficients) is stealthier; modifying DC/flat coefficients is a heavy penalty.
+ */
 export function detectabilityLabel(
-  chiSqPValue: number,
+  meanExposure: number,
+  structHits:   number,
   changesCount: number,
-  totalCoeffs: number,
 ): DetectLabel {
-  if (!Number.isFinite(chiSqPValue)) return 'Moderate Risk';
-  const changeRate = changesCount / totalCoeffs;
-  if (chiSqPValue < 0.001 || changeRate > 0.4) return 'Trivially Detectable';
-  if (chiSqPValue < 0.05  || changeRate > 0.2) return 'Likely Detectable';
-  if (chiSqPValue < 0.20  || changeRate > 0.1) return 'Moderate Risk';
-  return 'Resistant';
+  if (changesCount === 0 && structHits === 0) return 'Negligible';
+  let score = meanExposure * 100;
+  if (structHits > 0) {
+    score += 15 + Math.min(25, (structHits / (changesCount + structHits)) * 100);
+  }
+  if (score < 12) return 'Resistant';
+  if (score < 25) return 'Moderate';
+  return 'Detectable';
+}
+
+// ─── Placement map: changes drawn over the cost terrain ──────────────────────
+
+const PLACEMENT_AC = [1, 2, 3, 8, 9, 16]; // low-frequency AC zigzag indices for the texture map
+
+/**
+ * Render a method's changes on top of the J-UNIWARD cost terrain.
+ * Background: blue = low cost (textured) → red = high cost (smooth/flat).
+ * Markers: bright dots where the method changed coefficients —
+ *   textured changes (type 1) glow cyan/white, structural DC/flat hits (type 2) glow red.
+ * The story is immediate: adaptive changes sit in the blue; blind ones scatter into the red.
+ */
+export function renderPlacementMap(
+  canvas:      HTMLCanvasElement,
+  costs:       Float64Array[],
+  changedBlocks: Uint8Array,
+  blocksWide:  number,
+  blocksHigh:  number,
+): void {
+  const W = blocksWide * 8;
+  const H = blocksHigh * 8;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(W, H);
+  const d = img.data;
+
+  // Per-block average low-AC cost → normalized terrain value.
+  const avg = new Float32Array(costs.length);
+  let minC = Infinity, maxC = -Infinity;
+  for (let bi = 0; bi < costs.length; bi++) {
+    let sum = 0, cnt = 0;
+    for (const zi of PLACEMENT_AC) {
+      const c = costs[bi][zi];
+      if (isFinite(c) && c < WET) { sum += c; cnt++; }
+    }
+    const v = cnt > 0 ? sum / cnt : NaN;
+    avg[bi] = v;
+    if (isFinite(v)) { if (v < minC) minC = v; if (v > maxC) maxC = v; }
+  }
+  const range = maxC - minC || 1;
+
+  for (let bi = 0; bi < costs.length; bi++) {
+    const bRow = Math.floor(bi / blocksWide);
+    const bCol = bi % blocksWide;
+    const t = isFinite(avg[bi]) ? Math.min(1, Math.max(0, (avg[bi] - minC) / range)) : 1;
+    // terrain: low cost (t≈0) blue → high cost (t≈1) red
+    const tr = Math.round(t * 235);
+    const tg = Math.round((1 - Math.abs(2 * t - 1)) * 120);
+    const tb = Math.round((1 - t) * 235);
+
+    const flag = changedBlocks[bi];
+    for (let px = 0; px < 8; px++) {
+      for (let py = 0; py < 8; py++) {
+        const ii = ((bRow * 8 + px) * W + bCol * 8 + py) * 4;
+        if (flag) {
+          // bright marker core in the center of the block, terrain elsewhere
+          const center = px >= 2 && px <= 5 && py >= 2 && py <= 5;
+          if (center && flag === 1) { d[ii] = 180; d[ii + 1] = 255; d[ii + 2] = 245; }
+          else if (center && flag === 2) { d[ii] = 255; d[ii + 1] = 70; d[ii + 2] = 90; }
+          else { d[ii] = tr; d[ii + 1] = tg; d[ii + 2] = tb; }
+        } else {
+          d[ii] = tr; d[ii + 1] = tg; d[ii + 2] = tb;
+        }
+        d[ii + 3] = 255;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 // ─── High-level comparison runner ────────────────────────────────────────────
@@ -232,97 +267,85 @@ export function detectabilityLabel(
 export interface MethodStats {
   name: string;
   dctHist: Int32Array;
-  chiSq: number;
-  pValue: number;
+  /** Embeddable AC coefficients changed. */
   changesCount: number;
+  /** Non-DC AC coefficients available. */
   totalCoeffs: number;
+  /** DC / flat (wet) coefficients modified — structurally conspicuous edits. */
+  structHits: number;
+  /** Mean cost-percentile of changes (0 = textured/hidden, 1 = smooth/exposed). */
+  meanExposure: number;
+  /** Per-block change flag: 0 = none, 1 = textured AC change, 2 = DC/flat (structural) change. */
+  changedBlocks: Uint8Array;
   label: DetectLabel;
 }
 
 export interface StegAnalysisResult {
-  lsb:     MethodStats;
-  f5:      MethodStats;
+  lsb:      MethodStats;
+  f5:       MethodStats;
   juniward: MethodStats;
 }
 
 /**
- * Run three-way steganalysis comparison.
+ * Run the three-way adaptive-placement comparison.
  *
- * @param origPixels   Original spatial luma pixels
- * @param origCoeffs   Original DCT coefficients
+ * @param origPixels   Spatial luma pixels (for LSB, which edits the spatial domain)
+ * @param origCoeffs   Original quantised DCT coefficients
  * @param juniwCoeffs  J-UNIWARD modified coefficients (already embedded)
- * @param payloadBytes Payload size (same for all three methods)
- * @param quantTable   Luma quantization table
+ * @param payloadBytes Payload size — identical for all three methods
+ * @param quantTable   Luma quantisation table
+ * @param costs        J-UNIWARD cost map (used to rank where changes land)
+ * @param blocksWide   Luma blocks per row (for re-DCT of LSB)
+ * @param blocksHigh   Luma block rows
  */
 export function runAnalysis(
-  origPixels:  Float32Array,
-  origCoeffs:  Int16Array[],
-  juniwCoeffs: Int16Array[],
+  origPixels:   Float32Array,
+  origCoeffs:   Int16Array[],
+  juniwCoeffs:  Int16Array[],
   payloadBytes: number,
-  quantTable:  Uint16Array,
+  quantTable:   Uint16Array,
+  costs:        Float64Array[],
+  blocksWide:   number,
+  blocksHigh:   number,
 ): StegAnalysisResult {
   const bitCount = payloadBytes * 8;
-  const payload = new Uint8Array(payloadBytes).fill(0xaa); // dummy payload
-
-  // ---- LSB ----
-  const lsbPixels = lsbEmbed(origPixels, payload, bitCount);
-  // Convert spatial LSB changes to mock DCT changes for histogram analysis
-  // (used for change-count only; chi-square is on original DCT domain)
-  const lsbHistOrig = dctHistogram(origCoeffs);
-  // For LSB, manifest as: check p-value of spatial LSB distribution (effectively always low)
-  const lsbChanges = origPixels.reduce((n, v, i) =>
-    n + ((Math.round(v) & 1) !== (Math.round(lsbPixels[i]) & 1) ? 1 : 0), 0);
-  const lsbChiSq = chiSquareAttack(lsbHistOrig);
-
-  // ---- F5 ----
-  const { modified: f5Coeffs, changesCount: f5Changes, bitsEmbedded: f5Bits } =
-    f5Embed(origCoeffs, payload, bitCount);
-  if (f5Bits < bitCount) {
-    console.warn(`F5: only embedded ${f5Bits}/${bitCount} bits (image too small or too many zeros)`);
-  }
-  const f5Hist = dctHistogram(f5Coeffs);
-  const f5ChiSq = chiSquareAttack(f5Hist);
-
-  // ---- J-UNIWARD ----
-  const juwHist = dctHistogram(juniwCoeffs);
-  const juwChiSq = chiSquareAttack(juwHist);
-  const juwChanges = countChanges(origCoeffs, juniwCoeffs);
-
+  const payload = new Uint8Array(payloadBytes).fill(0xa7); // representative payload
+  const rank = buildCostRanker(costs);
   const totalCoeffs = origCoeffs.length * 63; // non-DC ACs
 
-  // LSB operates in the spatial domain, not DCT. The PoV chi-square test
-  // on unchanged DCT coefficients will misleadingly show a high p-value.
-  // Force p-value to near-zero so the bar chart and label are both consistent
-  // in showing LSB as trivially detectable by spatial-domain steganalysis.
-  const lsbPValue = Math.min(lsbChiSq.pValue, 0.0001);
+  // ---- LSB: edit spatial pixels, then honestly re-transform to the DCT domain
+  const lsbPixels = lsbEmbed(origPixels, payload, bitCount);
+  const lsbCoeffs = forwardDCTQuantize(lsbPixels, quantTable, blocksWide, blocksHigh);
+  const lsbP = analysePlacement(origCoeffs, lsbCoeffs, costs, rank);
+
+  // ---- F5: sequential non-zero AC embedding with shrinkage
+  const { modified: f5Coeffs } = f5Embed(origCoeffs, payload, bitCount);
+  const f5P = analysePlacement(origCoeffs, f5Coeffs, costs, rank);
+
+  // ---- J-UNIWARD: adaptive STC placement (already embedded)
+  const juwP = analysePlacement(origCoeffs, juniwCoeffs, costs, rank);
 
   return {
     lsb: {
       name: 'LSB (spatial)',
-      dctHist: lsbHistOrig,
-      chiSq: lsbChiSq.chiSq,
-      pValue: lsbPValue,
-      changesCount: lsbChanges,
-      totalCoeffs: origPixels.length,
-      label: detectabilityLabel(lsbPValue, lsbChanges, origPixels.length),
+      dctHist: dctHistogram(lsbCoeffs),
+      totalCoeffs,
+      ...lsbP,
+      label: detectabilityLabel(lsbP.meanExposure, lsbP.structHits, lsbP.changesCount),
     },
     f5: {
       name: 'F5 (DCT sequential)',
-      dctHist: f5Hist,
-      chiSq: f5ChiSq.chiSq,
-      pValue: f5ChiSq.pValue,
-      changesCount: f5Changes,
+      dctHist: dctHistogram(f5Coeffs),
       totalCoeffs,
-      label: detectabilityLabel(f5ChiSq.pValue, f5Changes, totalCoeffs),
+      ...f5P,
+      label: detectabilityLabel(f5P.meanExposure, f5P.structHits, f5P.changesCount),
     },
     juniward: {
       name: 'J-UNIWARD (adaptive)',
-      dctHist: juwHist,
-      chiSq: juwChiSq.chiSq,
-      pValue: juwChiSq.pValue,
-      changesCount: juwChanges,
+      dctHist: dctHistogram(juniwCoeffs),
       totalCoeffs,
-      label: detectabilityLabel(juwChiSq.pValue, juwChanges, totalCoeffs),
+      ...juwP,
+      label: detectabilityLabel(juwP.meanExposure, juwP.structHits, juwP.changesCount),
     },
   };
 }

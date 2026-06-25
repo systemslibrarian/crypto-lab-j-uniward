@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "npx esbuild scripts/test.ts --bundle --platform=node --format=esm --outfile=tmp/test.mjs --log-level=error && node tmp/test.mjs",
     "generate-sample": "node scripts/generate-sample.mjs"
   },
   "dependencies": {

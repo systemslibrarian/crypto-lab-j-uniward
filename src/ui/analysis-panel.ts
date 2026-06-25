@@ -1,10 +1,18 @@
 /**
- * analysis-panel.ts — Panel C: Three-way steganalysis comparison
+ * analysis-panel.ts — Panel C: three-way adaptive-placement comparison
+ *
+ * Shows *where* each method's changes land relative to image texture — the
+ * distortion J-UNIWARD is designed to minimise — rather than a misleading
+ * single p-value.
  */
 
 import { state } from '../state/app-state.ts';
 import { renderHistogram } from './renderers.ts';
-import type { MethodStats } from '../analysis/StegAnalysis.ts';
+import { renderPlacementMap } from '../analysis/StegAnalysis.ts';
+import type { MethodStats, DetectLabel } from '../analysis/StegAnalysis.ts';
+
+const changesCanvas = document.getElementById('changes-canvas') as HTMLCanvasElement;
+const changesLegend = document.getElementById('changes-legend');
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
@@ -36,6 +44,23 @@ methodTabs.forEach(tab => {
   });
 });
 
+// ─── Label → presentation ────────────────────────────────────────────────────
+
+function labelColor(label: DetectLabel): string {
+  switch (label) {
+    case 'Resistant':  return 'var(--success-color)';
+    case 'Moderate':   return 'var(--warning-text)';
+    case 'Detectable': return 'var(--error-text)';
+    case 'Negligible': return 'var(--text-secondary)';
+  }
+}
+
+function labelClass(label: DetectLabel): string {
+  return label === 'Resistant' ? 'resist'
+    : label === 'Moderate' ? 'moderate'
+    : label === 'Negligible' ? '' : 'detect';
+}
+
 // ─── Panel update ────────────────────────────────────────────────────────────
 
 export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
@@ -43,13 +68,12 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
     explainerPanel.classList.remove('hidden');
     statsContainer.innerHTML = `
       <p class="text-muted">
-        Load an image and embed a message to see live steganalysis results.
-        The comparison shows why adaptive placement matters.
+        Load an image and embed a message to see where each method hides its
+        changes — and why adaptive placement is harder to detect.
       </p>`;
     return;
   }
 
-  // Hide the pre-embed explainer, show results
   explainerPanel.classList.add('hidden');
 
   const methods: { key: 'lsb' | 'f5' | 'juniward'; label: string }[] = [
@@ -58,66 +82,61 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
     { key: 'juniward', label: 'J-UNIWARD' },
   ];
 
-  // Chi-square p-value bars
+  // ── Exposure bars: mean cost-percentile of each method's changes ──
   let html = `<div class="analysis-bars">
-    <h3 class="section-label">Chi-square p-value
-      <span class="tooltip-trigger" tabindex="0" aria-label="What is chi-square p-value?">ⓘ
-        <span class="tooltip-content">The chi-square test detects non-random patterns in DCT coefficient histograms.
-        A low p-value (near 0) means the image shows clear signs of tampering.
-        A high p-value (near 1) means no statistically significant distortion was found.</span>
+    <h3 class="section-label">Change exposure
+      <span class="tooltip-trigger" tabindex="0" aria-label="What is change exposure?">ⓘ
+        <span class="tooltip-content">Each change is ranked against the J-UNIWARD cost map.
+        Exposure is the average cost-percentile of a method's changes: 0% means every change
+        landed in the most textured, hardest-to-model coefficients; 100% means the smoothest,
+        most conspicuous ones. Lower is stealthier — this is the distortion J-UNIWARD minimises.</span>
       </span>
     </h3>`;
 
   for (const m of methods) {
-    const stats: MethodStats = state.analysisResult[m.key];
-    const pVal = Number.isFinite(stats.pValue) ? stats.pValue : 0;
-    const barWidth = Math.min(100, pVal * 200);
-    let barColor: string;
-    let label: string;
-    if (pVal < 0.05) {
-      barColor = 'var(--error-text)';
-      label = 'Likely detectable';
-    } else if (pVal < 0.20) {
-      barColor = 'var(--warning-text)';
-      label = 'Moderate risk';
-    } else {
-      barColor = 'var(--success-color)';
-      label = 'More resistant';
-    }
-    const pDisplay = pVal < 0.001 ? '< 0.001' : pVal.toFixed(3);
+    const s: MethodStats = state.analysisResult[m.key];
+    const color = labelColor(s.label);
+    const barWidth = s.label === 'Negligible' ? 0 : Math.max(2, Math.min(100, s.meanExposure * 100));
+    const valDisplay = s.label === 'Negligible'
+      ? '—'
+      : `${(s.meanExposure * 100).toFixed(0)}%`;
 
     html += `<div class="bar-row">
       <span class="bar-label">${m.label}</span>
       <div class="bar-track">
-        <div class="bar-fill" style="width:${barWidth}%; background:${barColor};"></div>
+        <div class="bar-fill" style="width:${barWidth}%; background:${color};"></div>
       </div>
-      <span class="bar-value" style="color:${barColor};">${pDisplay}</span>
-      <span class="bar-badge" style="color:${barColor};">${label}</span>
+      <span class="bar-value" style="color:${color};">${valDisplay}</span>
+      <span class="bar-badge" style="color:${color};">${s.label}</span>
     </div>`;
   }
 
-  html += `<p class="text-muted text-xs">Higher p-value = harder to detect under this analysis</p></div>`;
+  html += `<p class="text-muted text-xs">Lower exposure = changes hidden in texture = harder to detect</p></div>`;
 
-  // Active method detail
-  const stats: MethodStats = state.analysisResult[method];
-  const detLabel = stats.label;
-  const labelClass = detLabel === 'Resistant' ? 'resist'
-    : detLabel === 'Moderate Risk' ? 'moderate' : 'detect';
+  // ── Active-method detail ──
+  const s: MethodStats = state.analysisResult[method];
+  const cls = labelClass(s.label);
+  const structRow = s.structHits > 0
+    ? `<div class="stat-card">
+         <span class="stat-label">DC / flat coefficients hit</span>
+         <span class="stat-value detect">${s.structHits.toLocaleString()}</span>
+       </div>`
+    : `<div class="stat-card">
+         <span class="stat-label">DC / flat coefficients hit</span>
+         <span class="stat-value resist">0 — structure preserved</span>
+       </div>`;
 
   html += `
     <div class="stats-grid">
       <div class="stat-card">
-        <span class="stat-label">Active method</span>
-        <span class="stat-value">${stats.name}</span>
-      </div>
-      <div class="stat-card">
         <span class="stat-label">Detectability</span>
-        <span class="stat-value ${labelClass}">${detLabel}</span>
+        <span class="stat-value ${cls}">${s.label}</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Coefficients changed</span>
-        <span class="stat-value">${stats.changesCount.toLocaleString()} / ${stats.totalCoeffs.toLocaleString()}</span>
+        <span class="stat-value">${s.changesCount.toLocaleString()} / ${s.totalCoeffs.toLocaleString()}</span>
       </div>
+      ${structRow}
     </div>
 
     <div class="method-explanation">
@@ -125,31 +144,51 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
     </div>
 
     <div class="hist-wrap">
-      <p class="text-muted text-xs">DCT Coefficient Histogram (non-DC, ±64 range)</p>
+      <p class="text-muted text-xs">DCT coefficient histogram (non-DC, ±64 range)</p>
       <canvas id="hist-canvas" class="hist-canvas"></canvas>
     </div>`;
 
   statsContainer.innerHTML = html;
 
+  // Placement map: this method's changes drawn over the cost terrain.
+  if (state.costs && state.decoded) {
+    renderPlacementMap(
+      changesCanvas, state.costs, s.changedBlocks,
+      state.decoded.lumaBlocksWide, state.decoded.lumaBlocksHigh,
+    );
+    if (changesLegend) {
+      changesLegend.textContent = (s.changesCount + s.structHits) === 0
+        ? 'No DCT-domain changes for this method at this payload.'
+        : `Terrain: blue = textured (cheap) → red = smooth (costly). Bright dots = ${methodLabel(method)} changes${s.structHits > 0 ? ' (red dots = DC/flat hits)' : ''}.`;
+    }
+  }
+
   requestAnimationFrame(() => {
     const hc = document.getElementById('hist-canvas') as HTMLCanvasElement | null;
-    if (hc) renderHistogram(hc, stats.dctHist);
+    if (hc) renderHistogram(hc, s.dctHist);
   });
+}
+
+function methodLabel(method: 'lsb' | 'f5' | 'juniward'): string {
+  return method === 'lsb' ? 'LSB' : method === 'f5' ? 'F5' : 'J-UNIWARD';
 }
 
 function methodExplanation(method: 'lsb' | 'f5' | 'juniward'): string {
   switch (method) {
     case 'lsb':
-      return `<p class="explain-text"><strong>LSB (spatial)</strong> flips the least-significant bit of pixel values uniformly.
-      This creates a predictable, detectable pattern in both spatial and frequency domains.
-      Even simple statistical tests reveal the modification.</p>`;
+      return `<p class="explain-text"><strong>LSB (spatial)</strong> flips the least-significant bit of pixel values,
+      blind to image content. Re-transformed into the DCT domain, those edits scatter across the spectrum —
+      including the <strong>DC term and flat coefficients</strong> that any first-order detector watches.
+      It also leaves the classic spatial pair-of-values signature.</p>`;
     case 'f5':
-      return `<p class="explain-text"><strong>F5 (DCT sequential)</strong> embeds by decrementing the magnitude of non-zero
-      DCT coefficients in scan order. It avoids zero coefficients (shrinkage) but has no concept of "cost" —
-      it modifies easy-to-detect flat regions just as readily as textured ones.</p>`;
+      return `<p class="explain-text"><strong>F5 (DCT sequential)</strong> embeds only in non-zero AC coefficients,
+      which already cluster in busy regions — so it gets a crude texture bias for free and beats LSB.
+      But it uses no explicit cost, fills coefficients in scan order, and its magnitude-decrement
+      <em>shrinkage</em> leaves a tell-tale histogram signature (visible above).</p>`;
     case 'juniward':
-      return `<p class="explain-text"><strong>J-UNIWARD (adaptive)</strong> assigns a cost to each DCT coefficient based on how much
-      a ±1 change disturbs the Daubechies-8 wavelet decomposition. Changes are concentrated in
-      high-texture regions where they are harder to detect. STC (h=12) minimizes total embedding distortion.</p>`;
+      return `<p class="explain-text"><strong>J-UNIWARD (adaptive)</strong> scores every coefficient by how much a ±1 change
+      disturbs a Daubechies-8 wavelet decomposition, then uses STC (h=12) to place the payload in the
+      cheapest — most textured — coefficients. At low payloads its exposure is the lowest of the three.
+      It never touches DC or flat regions.</p>`;
   }
 }

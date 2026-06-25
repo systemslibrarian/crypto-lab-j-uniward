@@ -8,6 +8,7 @@
 
 import { deriveSTCKeys } from '../kdf.ts';
 import { stcExtract } from '../stc.ts';
+import { derivePermutation } from '../stc-keys.ts';
 import { selectCarriers } from './Embedder.ts';
 
 export interface ExtractResult {
@@ -19,12 +20,20 @@ export interface ExtractResult {
 /**
  * Extract an embedded message from stego DCT coefficients.
  *
+ * The payload byte length is supplied by the caller (carried in the stego JPEG's
+ * COM sideband alongside the salt and rate). This lets extraction run in a single
+ * pass over exactly `carriersNeeded` carriers — the same carrier set, in the same
+ * keyed permutation domain, that embedding used. (An earlier two-pass design read
+ * the length from an STC "header" block first, but that derived the permutation
+ * over a different, smaller carrier count than embedding, so it never decoded.)
+ *
  * @param dctCoeffs   Luma DCT blocks of the stego JPEG
  * @param quantTable  Luma quantization table (zigzag order)
  * @param costs       Cost matrix from the stego image (used for carrier selection)
  * @param passphrase  Shared secret (must match embed passphrase)
- * @param salt        16-byte salt (read from stego JPEG COM marker or sideband)
+ * @param salt        16-byte salt (read from stego JPEG COM marker)
  * @param rate        Embedding rate used during embed (needed to reconstruct w)
+ * @param msgLen      Message byte length (read from the COM sideband)
  * @param maxBytes    Maximum bytes to extract (safety bound)
  */
 export async function extract(
@@ -34,6 +43,7 @@ export async function extract(
   passphrase: string,
   salt: Uint8Array,
   rate: number,
+  msgLen: number,
   maxBytes: number = 65536,
 ): Promise<ExtractResult> {
   const allCarriers = selectCarriers(costs);
@@ -44,34 +54,8 @@ export async function extract(
   const STC_H = 12;
   const w = Math.ceil(STC_H / rate);
 
-  // We don't know the exact message length yet, so we do two-pass extraction:
-  // Pass 1: extract enough bits to read the 4-byte length header (32 bits)
-  // We need at least ceil(32/H) * w carriers for the header
-  const headerBlocks = Math.ceil(32 / STC_H);
-  const headerCarriers = headerBlocks * w;
-  const headerMsgBits = headerBlocks * STC_H; // >= 32
-
-  if (allCarriers.length < headerCarriers) {
-    throw new Error('Image too small for extraction.');
-  }
-
-  // Build stego LSBs for header extraction
-  const headerStego = new Uint8Array(headerCarriers);
-  for (let i = 0; i < headerCarriers; i++) {
-    const c = allCarriers[i];
-    headerStego[i] = (Math.abs(dctCoeffs[c.blockIdx][c.zzIdx])) & 1;
-  }
-
-  const headerBits = await stcExtract(hatKey, permKey, headerStego, headerMsgBits, rate);
-
-  // Decode 32-bit big-endian message length from first 32 extracted bits
-  let msgLen = 0;
-  for (let i = 0; i < 32; i++) {
-    msgLen = (msgLen << 1) | headerBits[i];
-  }
-
-  if (msgLen <= 0 || msgLen > maxBytes) {
-    throw new Error('Extraction failed: invalid message length. Check key and ensure this is a stego JPEG.');
+  if (!Number.isInteger(msgLen) || msgLen <= 0 || msgLen > maxBytes) {
+    throw new Error('Extraction failed: invalid payload length from sideband. Ensure this is a valid stego JPEG.');
   }
 
   // Full payload: 4 bytes length + msgLen bytes + 16 bytes HMAC tag
@@ -84,14 +68,16 @@ export async function extract(
     throw new Error(`Extraction failed: payload requires ${carriersNeeded} carriers but only ${allCarriers.length} available.`);
   }
 
-  // Build full stego LSBs
+  // Reconstruct the same keyed permutation over the full structural pool, then
+  // read the first `carriersNeeded` stego LSBs in permuted order (mirrors embed).
+  const perm = await derivePermutation(permKey, allCarriers.length);
   const fullStego = new Uint8Array(carriersNeeded);
   for (let i = 0; i < carriersNeeded; i++) {
-    const c = allCarriers[i];
+    const c = allCarriers[perm[i]];
     fullStego[i] = (Math.abs(dctCoeffs[c.blockIdx][c.zzIdx])) & 1;
   }
 
-  const fullBits = await stcExtract(hatKey, permKey, fullStego, mPadded, rate);
+  const fullBits = await stcExtract(hatKey, fullStego, mPadded, rate);
 
   // Verify header consistency
   let verifyLen = 0;

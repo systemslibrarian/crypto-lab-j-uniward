@@ -537,6 +537,58 @@ function idct8x8(block: Int16Array, quant: Uint16Array, out: Float32Array, outOf
   }
 }
 
+// ─── 8×8 forward DCT + quantize (exact inverse of idct8x8) ───────────────────
+// Used to honestly re-encode spatial-domain edits (e.g. LSB) back into the
+// quantized DCT domain so they can be compared against DCT-domain methods.
+function fdctQuantize8x8(
+  spatial: Float32Array, sOff: number, stride: number,
+  quant: Uint16Array, out: Int16Array,
+): void {
+  // Row pass then column pass, 0.5 scale per pass (0.25 total), C(0)=1/√2 —
+  // mirrors idct8x8 so that fdct(idct(c)) === c for integer coefficients.
+  const g = new Float64Array(64);
+  for (let y = 0; y < 8; y++) {
+    for (let u = 0; u < 8; u++) {
+      let s = 0;
+      for (let x = 0; x < 8; x++) s += spatial[sOff + y * stride + x] * COS_TABLE[u * 8 + x];
+      g[y * 8 + u] = 0.5 * (u === 0 ? Math.SQRT1_2 : 1) * s;
+    }
+  }
+  for (let u = 0; u < 8; u++) {
+    for (let v = 0; v < 8; v++) {
+      let s = 0;
+      for (let y = 0; y < 8; y++) s += g[y * 8 + v] * COS_TABLE[u * 8 + y];
+      const F = 0.5 * (u === 0 ? Math.SQRT1_2 : 1) * s;
+      // u=row, v=col → natural index u*8+v → zigzag via NAT_TO_ZZ, then quantize
+      const zz = NAT_TO_ZZ[u * 8 + v];
+      out[zz] = Math.round(F / quant[zz]);
+    }
+  }
+}
+
+/**
+ * Forward-transform a spatial luma image back into quantized DCT blocks.
+ * The exact inverse of the IDCT used in {@link decode}: re-encoding the
+ * decoded `lumaPixels` reproduces the original coefficients bit-for-bit.
+ */
+export function forwardDCTQuantize(
+  lumaPixels: Float32Array,
+  quantTable: Uint16Array,
+  blocksWide: number,
+  blocksHigh: number,
+): Int16Array[] {
+  const stride = blocksWide * 8;
+  const blocks: Int16Array[] = [];
+  for (let bRow = 0; bRow < blocksHigh; bRow++) {
+    for (let bCol = 0; bCol < blocksWide; bCol++) {
+      const blk = new Int16Array(64);
+      fdctQuantize8x8(lumaPixels, bRow * 8 * stride + bCol * 8, stride, quantTable, blk);
+      blocks.push(blk);
+    }
+  }
+  return blocks;
+}
+
 // ─── Public decode API ────────────────────────────────────────────────────────
 
 export function decode(buffer: ArrayBuffer): JpegDecoded {

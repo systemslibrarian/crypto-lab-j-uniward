@@ -145,8 +145,8 @@
           concentrating changes in perceptually complex regions.
         </p>
         <p class="hero-description">
-          Compare J-UNIWARD against naive methods like LSB and F5. See how adaptive
-          placement improves resistance under included statistical tests — all computed locally in your browser.
+          Compare J-UNIWARD against naive methods like LSB and F5. See exactly where each
+          one hides its changes — and why adaptive placement is harder to detect — all computed locally in your browser.
         </p>
         <button id="quick-demo-btn" class="btn btn-accent btn-lg">
           ▶ Quick Demo
@@ -369,16 +369,17 @@
               <div id="analysis-explainer" class="explainer-card">
                 <h3>What will this panel show?</h3>
                 <dl class="explainer-list">
-                  <dt>Chi-square test</dt>
-                  <dd>Detects non-random patterns in DCT coefficient pairs. Lower p-value = more detectable.</dd>
-                  <dt>Histogram analysis</dt>
-                  <dd>Visualizes the distribution of DCT coefficients. Embedding distorts the natural shape.</dd>
-                  <dt>p-value</dt>
-                  <dd>Probability of seeing this histogram by chance. Below 0.05 = statistically significant tampering.</dd>
+                  <dt>Change exposure</dt>
+                  <dd>Where each method's changes land, ranked against the J-UNIWARD cost map. 0% = hidden in
+                    the most textured coefficients; 100% = the smoothest, most conspicuous ones. Lower is stealthier.</dd>
+                  <dt>DC / flat coefficients hit</dt>
+                  <dd>Structurally conspicuous edits. J-UNIWARD and F5 never touch them; naïve LSB does.</dd>
+                  <dt>DCT histogram</dt>
+                  <dd>The coefficient distribution. F5's magnitude-shrinkage leaves a visible histogram signature.</dd>
                   <dt>Detectability label</dt>
-                  <dd>A qualitative rating based on p-value and change rate — from "Resistant" to "Trivially Detectable."</dd>
+                  <dd>A rating from placement — "Resistant" through "Detectable" — for the same payload across all three methods.</dd>
                 </dl>
-                <p class="text-muted text-xs">Embed a message to see live results from all three methods.</p>
+                <p class="text-muted text-xs">Embed a message to compare all three methods on the same image and payload.</p>
               </div>
 
               <div class="form-group">
@@ -403,9 +404,9 @@
               </div>
 
               <div class="changes-section">
-                <h3 class="section-label">DCT Block Change Map</h3>
-                <canvas id="changes-canvas" role="img" aria-label="DCT block change map"></canvas>
-                <span class="text-muted text-xs">Red = modified blocks · Gray = unchanged</span>
+                <h3 class="section-label">Where changes landed</h3>
+                <canvas id="changes-canvas" role="img" aria-label="Map of where the selected method changed coefficients, over the cost terrain"></canvas>
+                <span id="changes-legend" class="text-muted text-xs">Terrain: blue = textured (cheap) → red = smooth (costly). Bright dots = changes.</span>
               </div>
 
             </div>
@@ -423,24 +424,25 @@
                   measures how much a ±1 DCT change disturbs the image in 9 detail subbands.</li>
                 <li><strong>Embedding:</strong> Syndrome-Trellis Codes (h=12, 4096 states) find the
                   minimum-distortion modification via Viterbi search.</li>
-                <li><strong>Analysis:</strong> Chi-square test on adjacent DCT histogram pairs
-                  (Pairs-of-Values attack) — a first-order statistical test.</li>
+                <li><strong>Analysis:</strong> each method's changes are re-projected into the quantized
+                  DCT domain (LSB via a real forward DCT) and ranked against the cost map by where they land.</li>
               </ul>
               <p class="text-muted text-xs">
-                This analysis measures first-order histogram distortion only. It does not prove
-                undetectability under all attacks.
+                Placement predicts resistance to modern feature-based detectors better than any single
+                first-order test — but it does not prove undetectability under all attacks.
               </p>
             </div>
             <div class="info-card">
               <h3>Limitations</h3>
               <ul>
-                <li>This demo uses simplified, first-order steganalysis. Real-world detectors
-                  (e.g., SRNet, XuNet) use deep learning on rich feature sets.</li>
+                <li>The placement analysis is a proxy, not a detector. Real-world steganalysis
+                  (e.g., SRM, SRNet, XuNet) uses deep learning on rich feature sets.</li>
+                <li>At high payloads even adaptive embedding runs out of textured coefficients — which is
+                  why the recommended rate is ≤ 0.3 bpnzac. Above that, all three methods become exposed.</li>
                 <li>The COM marker sideband for salt/rate may be stripped by image pipelines,
                   social media compression, or metadata-stripping tools.</li>
-                <li>J-UNIWARD is <em>more resistant</em> than LSB/F5 under included tests — not
-                  "undetectable" or "invisible to analysis."</li>
-                <li>This is an educational tool. It is not suitable for adversarial environments.</li>
+                <li>J-UNIWARD is <em>more resistant</em> than LSB/F5 — not "undetectable." This is an
+                  educational tool, not suitable for adversarial environments.</li>
               </ul>
             </div>
           </div>

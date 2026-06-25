@@ -10,6 +10,7 @@
 
 import { deriveSTCKeys } from '../kdf.ts';
 import { stcEmbed } from '../stc.ts';
+import { derivePermutation } from '../stc-keys.ts';
 
 // ─── Coefficient candidate selection ─────────────────────────────────────────
 
@@ -20,7 +21,14 @@ export interface Carrier {
 }
 
 /**
- * Collect all embeddable (non-DC, non-wet) DCT coefficients.
+ * Collect every embeddable (non-DC) AC coefficient, in block-major order.
+ *
+ * The pool is deliberately *structural* — it does NOT filter by cost. This is
+ * what makes embedding reversible: the cover and the (slightly different) stego
+ * image produce the identical carrier pool, so the keyed permutation lines up on
+ * both sides. High-cost (flat/wet) coefficients stay in the pool but carry a
+ * large ρ, so the STC Viterbi search simply avoids modifying them.
+ *
  * DC (zigzag index 0) is NEVER included — assert this.
  */
 export function selectCarriers(
@@ -32,7 +40,6 @@ export function selectCarriers(
     const blockCosts = costs[bi];
     for (let zi = 1; zi < 64; zi++) { // skip DC (zi=0)
       const cost = blockCosts[zi];
-      if (!isFinite(cost) || cost >= 1e7) continue; // wet cost
       carriers.push({ blockIdx: bi, zzIdx: zi, cost });
     }
   }
@@ -154,19 +161,26 @@ export async function embed(
 
   const nzac = countNZAC(dctCoeffs);
 
-  // Build cover LSBs and cost arrays for selected carriers
+  // Keyed permutation over the FULL structural pool, then take the first
+  // `carriersNeeded` in permuted order. This spreads the payload across the whole
+  // image (not just the top blocks) and lets the STC pick the globally cheapest —
+  // most textured — coefficients. Identical on the extract side, by construction.
+  const perm = await derivePermutation(permKey, allCarriers.length);
   const n = carriersNeeded;
+  const used = new Array<Carrier>(n);
   const coverBits = new Uint8Array(n);
   const rho = new Float64Array(n);
   for (let i = 0; i < n; i++) {
-    const c = allCarriers[i];
+    const c = allCarriers[perm[i]];
+    used[i] = c;
     const v = dctCoeffs[c.blockIdx][c.zzIdx];
     coverBits[i] = (Math.abs(v)) & 1;
-    rho[i] = Math.max(c.cost, 1e-10); // floor to avoid zero-cost
+    const cost = isFinite(c.cost) ? c.cost : 1e8;
+    rho[i] = Math.max(cost, 1e-10); // floor to avoid zero-cost
   }
 
   // Run STC Viterbi embedding
-  const { d } = await stcEmbed(hatKey, permKey, coverBits, rho, paddedBits);
+  const { d } = await stcEmbed(hatKey, coverBits, rho, paddedBits);
 
   // Deep clone DCT blocks and apply changes
   const modified = dctCoeffs.map(b => new Int16Array(b));
@@ -175,7 +189,7 @@ export async function embed(
 
   for (let i = 0; i < n; i++) {
     if (d[i]) {
-      const c = allCarriers[i];
+      const c = used[i];
       const v = modified[c.blockIdx][c.zzIdx];
       // ±1 modification: flip magnitude LSB
       if (v === 0) {

@@ -20,6 +20,7 @@ export interface AppState {
   stegoDecoded:   JpegDecoded | null;
   lastEmbedSalt:  Uint8Array | null;
   lastEmbedRate:  number;
+  lastEmbedMsgLen: number;
 
   // Analysis
   analysisResult: StegAnalysisResult | null;
@@ -39,6 +40,7 @@ export const state: AppState = {
   stegoDecoded:   null,
   lastEmbedSalt:  null,
   lastEmbedRate:  0.10,
+  lastEmbedMsgLen: 0,
 
   analysisResult: null,
   activeMethod:   'juniward',
@@ -52,6 +54,7 @@ export function resetEmbedState(): void {
   state.stegoDecoded  = null;
   state.lastEmbedSalt = null;
   state.lastEmbedRate = 0.10;
+  state.lastEmbedMsgLen = 0;
   state.analysisResult = null;
 }
 

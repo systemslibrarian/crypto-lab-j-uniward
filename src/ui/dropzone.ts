@@ -127,7 +127,13 @@ export async function loadImage(file: File): Promise<void> {
 
     const bW = state.decoded.lumaBlocksWide;
     const bH = state.decoded.lumaBlocksHigh;
-    state.costs = await computeCostMatrix(state.decoded.lumaPixels, state.decoded.quantTable, bW, bH);
+    state.costs = await computeCostMatrix(
+      state.decoded.lumaPixels, state.decoded.quantTable, bW, bH,
+      (frac) => {
+        loadProgressDetail.textContent =
+          `Ranking every DCT coefficient by wavelet distortion cost… ${Math.round(frac * 100)}%`;
+      },
+    );
 
     clearLoadProgress();
     embedBtn.disabled = false;

@@ -6,12 +6,12 @@
 
 Browser-native implementation of **J-UNIWARD** (JPEG Universal Wavelet Relative Distortion) — the academic reference for adaptive JPEG steganography. Implements the full pipeline from the 2013 Holub & Fridrich paper:
 
-- **Cost function:** Daubechies-8 three-level wavelet decomposition assigns a distortion cost to each DCT coefficient — changes in textured regions are "cheaper."
-- **Embedding:** Full Syndrome-Trellis Code (STC, h=12, 4096 states) finds the minimum-distortion modification via Viterbi search (Filler, Judas & Fridrich 2011).
-- **Key schedule:** PBKDF2-SHA-256 (600k iterations) → HKDF domain separation → AES-CTR hat matrix + Fisher-Yates permutation. HMAC-SHA-256 integrity tag.
-- **Steganalysis:** Three-way comparison (LSB vs F5 vs J-UNIWARD) with chi-square PoV attack and DCT histogram visualization.
+- **Cost function:** Daubechies-8 three-level wavelet decomposition assigns a distortion cost to each DCT coefficient — changes in textured regions are "cheaper." Computed in well under a second via precomputed per-mode wavelet footprints (a ~1000× speedup over the literal definition, validated against it in the test suite).
+- **Embedding:** Full Syndrome-Trellis Code (STC, h=12, 4096 states) finds the minimum-distortion modification via Viterbi search (Filler, Judas & Fridrich 2011). The payload is spread across the whole image by a keyed permutation over the full coefficient pool, so changes land in the globally cheapest — most textured — coefficients.
+- **Key schedule:** PBKDF2-SHA-256 (600k iterations) → HKDF domain separation → AES-CTR hat matrix + Fisher-Yates permutation. HMAC-SHA-256 integrity tag; a real embed→download→upload→extract round-trip recovers the message and verifies the tag.
+- **Steganalysis:** Honest three-way comparison (LSB vs F5 vs J-UNIWARD) at the same payload. LSB's spatial edits are re-projected into the quantized DCT domain via a real forward DCT, then every method's changes are ranked against the cost map by *where they land* — the distortion that actually predicts detectability — plus a DCT histogram view.
 
-Everything runs locally in your browser. No backends, no simulated math.
+Everything runs locally in your browser. No backends, no simulated math, no rigged comparison: at the recommended payloads J-UNIWARD genuinely wins, and the panel shows it honestly.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ Click **▶ Quick Demo** on the live site — it loads a sample image, prefills 
 | Payload presets | Conservative (0.10), Balanced (0.20), Aggressive (0.40) bpnzac |
 | Embedding summary | Payload size, actual rate, carriers used, distortion, metadata status |
 | Visual comparison | Side-by-side cover/stego + 10× amplified difference map |
-| Live steganalysis | Chi-square p-value bars, DCT histograms, detectability labels |
+| Live steganalysis | Change-exposure bars, "where changes landed" map over the cost terrain, DCT histograms, detectability labels |
 | Method explanations | Teaching text explains *why* each method is more or less detectable |
 | Image suitability | Indicator shows whether your image is a good or poor carrier |
 | Round-trip verification | Embed → download → upload → extract with integrity check |
@@ -63,9 +63,10 @@ src/
 
 ## Limitations
 
-- **Simplified analysis.** The included chi-square test is a first-order statistical attack. Real-world steganalysis (SRNet, XuNet, etc.) uses deep learning on rich feature sets.
-- **COM marker sideband.** Salt and embedding rate are stored in a JPEG COM marker for extraction. This metadata may be stripped by image pipelines or social media compression.
-- **Not "undetectable."** J-UNIWARD is *more resistant* than LSB/F5 under the included analysis — not invisible to all attacks.
+- **Placement is a proxy, not a detector.** The analysis measures *where* changes land relative to texture — the quantity J-UNIWARD minimizes — which predicts resistance better than any single first-order test. It is not itself a steganalyzer; real-world detection (SRM, SRNet, XuNet) uses deep learning on rich feature sets.
+- **High payloads expose everyone.** Above ~0.3 bpnzac even adaptive embedding runs out of textured coefficients, and F5's non-zero-AC bias can match J-UNIWARD's placement. The default/recommended rates (≤ 0.2) are where adaptive placement clearly wins.
+- **COM marker sideband.** Salt, rate, and payload length are stored in a JPEG COM marker for extraction. This metadata may be stripped by image pipelines or social media compression.
+- **Not "undetectable."** J-UNIWARD is *more resistant* than LSB/F5 — not invisible to all attacks.
 - **Educational tool.** This is a teaching and portfolio demo, not suitable for adversarial environments.
 
 ## Run Locally
@@ -74,8 +75,12 @@ src/
 git clone https://github.com/systemslibrarian/crypto-lab-j-uniward
 cd crypto-lab-j-uniward
 npm install
-npm run dev
+npm run dev      # dev server
+npm test         # core correctness suite (DCT roundtrip, embed↔extract, analysis)
+npm run build    # typecheck + production build
 ```
+
+`npm test` exercises the real pipeline end-to-end — decode → cost map → embed → JPEG encode → re-decode → extract — plus the forward/inverse DCT and the steganalysis ordering. Run `SLOW=1 npm test` to additionally validate the fast cost map against the reference implementation.
 
 ## Live Demo
 

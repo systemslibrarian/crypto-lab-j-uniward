@@ -6,7 +6,7 @@ import { state, resetEmbedState } from '../state/app-state.ts';
 import { embed, countNZAC, capacityBytes } from '../steg/Embedder.ts';
 import { encode, decode } from '../codec/JpegCodec.ts';
 import { drawImageOnCanvas, renderDiffMap, showAlert } from './renderers.ts';
-import { runAnalysis, renderChangesHeatmap } from '../analysis/StegAnalysis.ts';
+import { runAnalysis } from '../analysis/StegAnalysis.ts';
 import { updateAnalysisPanel } from './analysis-panel.ts';
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
@@ -30,7 +30,6 @@ const capacityWarn  = document.getElementById('capacity-warn')!;
 const summaryCard   = document.getElementById('embed-summary')!;
 const resetBtn      = document.getElementById('reset-btn') as HTMLButtonElement | null;
 const copyMsgBtn    = document.getElementById('copy-extracted') as HTMLButtonElement | null;
-const changesCanvas = document.getElementById('changes-canvas') as HTMLCanvasElement;
 const analysisSlider = document.getElementById('analysis-payload-slider') as HTMLInputElement;
 const analysisDisplay= document.getElementById('analysis-payload-display')!;
 
@@ -130,18 +129,23 @@ embedBtn.addEventListener('click', async () => {
       state.costs, message, key, rate,
     );
 
+    const msgLen = new TextEncoder().encode(message).length;
     state.lastEmbedSalt = result.salt;
     state.lastEmbedRate = rate;
+    state.lastEmbedMsgLen = msgLen;
 
     // Encode stego JPEG
     const rawStego = encode(state.decoded, result.modifiedCoeffs, state.origBuffer);
 
-    // Inject COM marker (salt + rate) after SOI
+    // Inject COM marker (salt + rate + message length) after SOI.
+    // Payload: salt[16] · rate float32[4] · msgLen uint32[4] = 24 bytes.
     const rawArr = new Uint8Array(rawStego);
-    const comPayload = new Uint8Array(20);
+    const comPayload = new Uint8Array(24);
     comPayload.set(result.salt, 0);
-    new DataView(comPayload.buffer).setFloat32(16, rate, false);
-    const comMarker = new Uint8Array([0xFF, 0xFE, 0x00, 0x16, ...comPayload]);
+    const comDv = new DataView(comPayload.buffer);
+    comDv.setFloat32(16, rate, false);
+    comDv.setUint32(20, msgLen, false);
+    const comMarker = new Uint8Array([0xFF, 0xFE, 0x00, 0x1A, ...comPayload]);
     const stegoWithCom = new Uint8Array(2 + comMarker.length + rawArr.length - 2);
     stegoWithCom.set(rawArr.subarray(0, 2), 0);
     stegoWithCom.set(comMarker, 2);
@@ -227,12 +231,11 @@ embedBtn.addEventListener('click', async () => {
         result.modifiedCoeffs,
         payloadBytes,
         state.decoded.quantTable,
+        state.costs,
+        state.decoded.lumaBlocksWide,
+        state.decoded.lumaBlocksHigh,
       );
       updateAnalysisPanel(state.activeMethod);
-      renderChangesHeatmap(
-        changesCanvas, state.decoded.dctCoeffs, result.modifiedCoeffs,
-        state.decoded.lumaBlocksWide, state.decoded.lumaBlocksHigh,
-      );
     } catch { /* analysis non-critical */ }
 
   } catch (err) {

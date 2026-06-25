@@ -60,15 +60,17 @@ tabExtract.tabIndex = -1;
 
 // ─── COM marker reader ──────────────────────────────────────────────────────
 
-function readComSideband(buf: ArrayBuffer): { salt: Uint8Array; rate: number } | null {
+function readComSideband(buf: ArrayBuffer): { salt: Uint8Array; rate: number; msgLen: number } | null {
   const arr = new Uint8Array(buf);
-  if (arr.length < 26 || arr[0] !== 0xFF || arr[1] !== 0xD8) return null;
+  if (arr.length < 30 || arr[0] !== 0xFF || arr[1] !== 0xD8) return null;
   if (arr[2] !== 0xFF || arr[3] !== 0xFE) return null;
   const len = (arr[4] << 8) | arr[5];
-  if (len !== 22) return null;
+  if (len !== 26) return null; // 2 (length) + 24 (payload)
   const salt = arr.slice(6, 22);
-  const rate = new DataView(arr.buffer, arr.byteOffset + 22, 4).getFloat32(0, false);
-  return { salt, rate };
+  const dv = new DataView(arr.buffer, arr.byteOffset + 22, 8);
+  const rate = dv.getFloat32(0, false);
+  const msgLen = dv.getUint32(4, false);
+  return { salt, rate, msgLen };
 }
 
 // ─── Uploaded stego file ─────────────────────────────────────────────────────
@@ -96,30 +98,32 @@ extractBtn.addEventListener('click', async () => {
   let stegoD: JpegDecoded | null = null;
   let extractSalt: Uint8Array | null = null;
   let extractRate = 0;
+  let extractMsgLen = 0;
 
   // Prefer active embed result, then uploaded file
   if (state.stegoDecoded && state.lastEmbedSalt) {
-    stegoD      = state.stegoDecoded;
-    extractSalt = state.lastEmbedSalt;
-    extractRate = state.lastEmbedRate;
+    stegoD        = state.stegoDecoded;
+    extractSalt   = state.lastEmbedSalt;
+    extractRate   = state.lastEmbedRate;
+    extractMsgLen = state.lastEmbedMsgLen;
   } else if (uploadedDecoded) {
     stegoD = uploadedDecoded;
     if (uploadedBuf) {
       const sb = readComSideband(uploadedBuf);
-      if (sb) { extractSalt = sb.salt; extractRate = sb.rate; }
+      if (sb) { extractSalt = sb.salt; extractRate = sb.rate; extractMsgLen = sb.msgLen; }
     }
   }
 
   if (!extractSalt && state.stegoBuffer) {
     const sb = readComSideband(state.stegoBuffer);
-    if (sb) { extractSalt = sb.salt; extractRate = sb.rate; }
+    if (sb) { extractSalt = sb.salt; extractRate = sb.rate; extractMsgLen = sb.msgLen; }
   }
 
   if (!stegoD) {
     showAlert(extractOutput, 'No stego JPEG loaded. Embed first or upload a stego JPEG.', 'error');
     return;
   }
-  if (!extractSalt || extractRate <= 0) {
+  if (!extractSalt || extractRate <= 0 || extractMsgLen <= 0) {
     showAlert(extractOutput, 'Could not read embedding parameters. Ensure this is a valid stego file.', 'error');
     return;
   }
@@ -132,7 +136,7 @@ extractBtn.addEventListener('click', async () => {
     const bH = stegoD.lumaBlocksHigh;
     const stegoCosts = await computeCostMatrix(stegoD.lumaPixels, stegoD.quantTable, bW, bH);
 
-    const result = await extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key, extractSalt, extractRate);
+    const result = await extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key, extractSalt, extractRate, extractMsgLen);
     showAlert(extractOutput,
       `✓ Recovered (${result.bytesRecovered} bytes):<br><br><code class="extract-msg">${escapeHtml(result.message)}</code>`,
       'success',

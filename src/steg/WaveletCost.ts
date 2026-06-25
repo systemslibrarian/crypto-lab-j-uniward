@@ -172,8 +172,186 @@ for (let k = 0; k < 8; k++)
 
 const SIGMA = 1e-6; // stabilization constant (Holub & Fridrich 2012)
 
+// ─── Fast cost via precomputed basis wavelet "footprints" ────────────────────
+//
+// Modifying DCT coefficient (k,l) of an 8×8 block by +1 adds the fixed spatial
+// pattern q_{kl}·B_{kl} at that block. The wavelet transform is linear, so the
+// change it induces in each detail subband is q_{kl} times the wavelet response
+// of B_{kl} — a *fixed* pattern. Because blocks sit 8 px apart and the 3-level
+// transform decimates by 2 three times (8 = 2³), every block maps to an even
+// position at every level: there is NO downsampling-phase variation, so each
+// block's response is the *same* footprint, merely translated.
+//
+// We therefore compute the 64 basis footprints once, then the cost of every
+// (block, coefficient) is a small weighted sum of those footprint magnitudes
+// against the global cover-subband reciprocal denominators. This replaces
+// ~(blocks × 64) full wavelet decompositions with a handful of localized sums.
+
+/** One detail subband's contribution to a basis footprint. */
+interface SubbandFootprint {
+  level: 1 | 2 | 3;   // origin scale: block (r,c) → subband (r*4/2/1)
+  band: 0 | 1 | 2;    // 0=LH, 1=HL, 2=HH within the level
+  dr: Int32Array;     // row offsets relative to the block's subband origin
+  dc: Int32Array;     // col offsets
+  val: Float64Array;  // |wavelet response| at each offset (for unit coefficient)
+}
+
+/** Footprints for all 64 DCT modes, indexed by zigzag index. Computed lazily once. */
+let FOOTPRINTS: SubbandFootprint[][] | null = null;
+
+function buildFootprints(): SubbandFootprint[][] {
+  const R = 128;                 // reference canvas — large enough for the 3-level D8 support
+  const refBlockPx = 64;         // place the basis at pixel (64,64): even at every level
+  const EPS_REL = 1e-6;          // drop numerical dust relative to the mode's peak response
+
+  const out: SubbandFootprint[][] = [];
+
+  for (let zi = 0; zi < 64; zi++) {
+    const nat = ZZ_TO_NAT_LOCAL[zi];
+    if (nat === 0) { out.push([]); continue; } // DC — never embedded
+
+    const k = nat >> 3;
+    const l = nat & 7;
+    const basis = BASIS_CACHE[k * 8 + l];
+
+    // Place the unit basis pattern at the reference block on a zero canvas.
+    const canvas = new Float64Array(R * R);
+    for (let px = 0; px < 8; px++) {
+      for (let py = 0; py < 8; py++) {
+        canvas[(refBlockPx + px) * R + (refBlockPx + py)] = basis[px * 8 + py];
+      }
+    }
+    const sub = wavelet3Level(canvas, R, R);
+
+    const bands: [Float64Array, number, number, 1 | 2 | 3, 0 | 1 | 2][] = [
+      [sub.LH1, sub.sw1, sub.sh1, 1, 0], [sub.HL1, sub.sw1, sub.sh1, 1, 1], [sub.HH1, sub.sw1, sub.sh1, 1, 2],
+      [sub.LH2, sub.sw2, sub.sh2, 2, 0], [sub.HL2, sub.sw2, sub.sh2, 2, 1], [sub.HH2, sub.sw2, sub.sh2, 2, 2],
+      [sub.LH3, sub.sw3, sub.sh3, 3, 0], [sub.HL3, sub.sw3, sub.sh3, 3, 1], [sub.HH3, sub.sw3, sub.sh3, 3, 2],
+    ];
+
+    // Peak magnitude across all subbands → relative threshold.
+    let peak = 0;
+    for (const [arr] of bands) for (let i = 0; i < arr.length; i++) peak = Math.max(peak, Math.abs(arr[i]));
+    const thresh = peak * EPS_REL;
+
+    const modeFootprints: SubbandFootprint[] = [];
+    for (const [arr, sw, sh, level, band] of bands) {
+      // refBlockPx maps to subband origin refBlockPx / 2^level (no phase variation
+      // because refBlockPx is a multiple of 8): level1→32, level2→16, level3→8.
+      const refOrigin = refBlockPx >> level;
+      const drs: number[] = [];
+      const dcs: number[] = [];
+      const vals: number[] = [];
+      for (let r = 0; r < sh; r++) {
+        for (let c = 0; c < sw; c++) {
+          const v = arr[r * sw + c];
+          if (Math.abs(v) <= thresh) continue;
+          drs.push(r - refOrigin);
+          dcs.push(c - refOrigin);
+          vals.push(Math.abs(v));
+        }
+      }
+      modeFootprints.push({
+        level, band,
+        dr: Int32Array.from(drs),
+        dc: Int32Array.from(dcs),
+        val: Float64Array.from(vals),
+      });
+    }
+    out.push(modeFootprints);
+  }
+  return out;
+}
+
 /**
- * Compute J-UNIWARD distortion cost ρ for every DCT coefficient.
+ * Compute J-UNIWARD distortion cost ρ for every DCT coefficient — fast path.
+ *
+ * Mathematically equivalent to {@link computeCostMatrixSlow} for interior
+ * blocks (uses the textbook global cover-subband denominator), but ~1000×
+ * faster. Same signature and output shape.
+ */
+export async function computeCostMatrix(
+  lumaPixels: Float32Array,
+  quantTable: Uint16Array,
+  blocksWide: number,
+  blocksHigh: number,
+  onProgress?: (fraction: number) => void,
+): Promise<Float64Array[]> {
+  const blockCount = blocksWide * blocksHigh;
+  const rows = blocksHigh * 8;
+  const cols = blocksWide * 8;
+
+  // Cover wavelet (computed once) → reciprocal denominators 1/(|W_n| + σ).
+  const img = new Float64Array(lumaPixels.length);
+  for (let i = 0; i < img.length; i++) img[i] = lumaPixels[i];
+  const cover = wavelet3Level(img, rows, cols);
+
+  const recip = (a: Float64Array): Float64Array => {
+    const o = new Float64Array(a.length);
+    for (let i = 0; i < a.length; i++) o[i] = 1 / (Math.abs(a[i]) + SIGMA);
+    return o;
+  };
+  // Indexed [level-1][band] → { denom, sw, sh }
+  const denom = [
+    [{ d: recip(cover.LH1), sw: cover.sw1, sh: cover.sh1 }, { d: recip(cover.HL1), sw: cover.sw1, sh: cover.sh1 }, { d: recip(cover.HH1), sw: cover.sw1, sh: cover.sh1 }],
+    [{ d: recip(cover.LH2), sw: cover.sw2, sh: cover.sh2 }, { d: recip(cover.HL2), sw: cover.sw2, sh: cover.sh2 }, { d: recip(cover.HH2), sw: cover.sw2, sh: cover.sh2 }],
+    [{ d: recip(cover.LH3), sw: cover.sw3, sh: cover.sh3 }, { d: recip(cover.HL3), sw: cover.sw3, sh: cover.sh3 }, { d: recip(cover.HH3), sw: cover.sw3, sh: cover.sh3 }],
+  ];
+
+  if (!FOOTPRINTS) FOOTPRINTS = buildFootprints();
+  const footprints = FOOTPRINTS;
+
+  const costs: Float64Array[] = Array.from({ length: blockCount }, () => new Float64Array(64));
+
+  for (let bRow = 0; bRow < blocksHigh; bRow++) {
+    // Yield periodically so the UI (and progress callback) stays responsive.
+    if (bRow > 0 && bRow % 8 === 0) {
+      onProgress?.(bRow / blocksHigh);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    for (let bCol = 0; bCol < blocksWide; bCol++) {
+      const bi = bRow * blocksWide + bCol;
+      const blockCosts = costs[bi];
+
+      for (let zi = 0; zi < 64; zi++) {
+        const nat = ZZ_TO_NAT_LOCAL[zi];
+        if (nat === 0) { blockCosts[zi] = 1e8; continue; } // DC: wet
+
+        const q = quantTable[zi];
+        const modeFp = footprints[zi];
+        let cost = 0;
+
+        for (let s = 0; s < modeFp.length; s++) {
+          const fp = modeFp[s];
+          const band = denom[fp.level - 1][fp.band];
+          const dArr = band.d;
+          const sw = band.sw, sh = band.sh;
+          // Block's subband origin at this level (no phase variation).
+          const oRow = bRow * (fp.level === 1 ? 4 : fp.level === 2 ? 2 : 1);
+          const oCol = bCol * (fp.level === 1 ? 4 : fp.level === 2 ? 2 : 1);
+          const dr = fp.dr, dc = fp.dc, val = fp.val;
+          for (let i = 0; i < val.length; i++) {
+            const r = oRow + dr[i];
+            const c = oCol + dc[i];
+            if (r < 0 || r >= sh || c < 0 || c >= sw) continue;
+            cost += val[i] * dArr[r * sw + c];
+          }
+        }
+        blockCosts[zi] = q * cost;
+      }
+    }
+  }
+  onProgress?.(1);
+
+  return costs;
+}
+
+/**
+ * Reference cost implementation — the literal definition: for every (block,
+ * coefficient) it perturbs the image by q·B_{kl} and re-runs the wavelet
+ * decomposition on a padded patch. Correct but ~1000× slower than
+ * {@link computeCostMatrix}. Kept only as the oracle the test suite validates
+ * the fast path against (run `SLOW=1 npm test`); the app never calls it.
  *
  * @param lumaPixels  Spatial luma values (Float32Array, width×height)
  * @param quantTable  Luma quantization table (Uint16Array, 64 values, zigzag)
@@ -182,7 +360,7 @@ const SIGMA = 1e-6; // stabilization constant (Holub & Fridrich 2012)
  * @returns           Array of length blockCount, each a Float64Array(64) of costs
  *                    in zigzag order.  Wet cost = 1e8 (effectively infinity).
  */
-export async function computeCostMatrix(
+export async function computeCostMatrixSlow(
   lumaPixels: Float32Array,
   quantTable: Uint16Array,
   blocksWide: number,
