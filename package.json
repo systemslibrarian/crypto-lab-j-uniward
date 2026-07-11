@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "npx esbuild scripts/test.ts --bundle --platform=node --format=esm --outfile=tmp/test.mjs --log-level=error && node tmp/test.mjs",
+    "test:a11y": "playwright test",
     "generate-sample": "node scripts/generate-sample.mjs"
   },
   "dependencies": {
@@ -17,6 +18,8 @@
     "js-sha3": "^0.9.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
     "@types/jpeg-js": "^0.3.7",
     "typescript": "^5.5.3",
     "vite": "^5.4.2"

@@ -1042,6 +1042,11 @@ footer .scripture {
   margin: 0 auto var(--space-sm);
 }
 
+/* Inline links within footer text sit amid surrounding prose, so color alone
+   is not a sufficient distinction (WCAG 1.4.1). Give them a persistent
+   underline. */
+footer p a { text-decoration: underline; }
+
 /* ─── Spinner animation ──────────────────────────────────────────────────── */
 
 @keyframes spin {
@@ -1078,7 +1083,7 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
 }
 
 /* Visible focus for keyboard navigation on custom controls */
-.dropzone:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
+.dropzone:focus-within { outline: 2px solid var(--input-focus); outline-offset: 2px; }
 .method-tab:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
 .preset-btn:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
 

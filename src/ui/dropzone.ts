@@ -245,9 +245,6 @@ export function setupDropzone(): void {
     const file = e.dataTransfer?.files[0];
     if (file) loadImage(file);
   });
-  dropzone.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
-  });
   fileInput.addEventListener('change', () => {
     if (fileInput.files?.[0]) loadImage(fileInput.files[0]);
   });
