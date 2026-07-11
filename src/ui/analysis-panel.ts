@@ -104,7 +104,7 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
     html += `<div class="bar-row">
       <span class="bar-label">${m.label}</span>
       <div class="bar-track">
-        <div class="bar-fill" style="width:${barWidth}%; background:${color};"></div>
+        <div class="bar-fill" style="width:${barWidth}%; background-color:${color};"></div>
       </div>
       <span class="bar-value" style="color:${color};">${valDisplay}</span>
       <span class="bar-badge" style="color:${color};">${s.label}</span>
