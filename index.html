@@ -151,20 +151,30 @@
       </header>
 
       <!-- ─── Hero Section ────────────────────────────────────────── -->
-      <section class="hero" aria-labelledby="hero-title">
-        <h1 id="hero-title">J-UNIWARD Steganography Lab</h1>
-        <p class="hero-subtitle">
-          Adaptive JPEG steganography that reduces statistical detectability by
-          concentrating changes in perceptually complex regions.
-        </p>
-        <p class="hero-description">
-          Compare J-UNIWARD against naive methods like LSB and F5. See exactly where each
-          one hides its changes — and why adaptive placement is harder to detect — all computed locally in your browser.
-        </p>
+      <header class="cl-hero">
+        <div class="cl-hero-main">
+          <h1 class="cl-hero-title">J-UNIWARD</h1>
+          <p class="cl-hero-sub">Adaptive JPEG Steganography · Holub &amp; Fridrich, WIFS 2013</p>
+          <p class="cl-hero-desc">
+            Embed a message with a Daubechies-8 wavelet distortion cost and watch, side by side,
+            where J-UNIWARD, F5, and naïve LSB place their changes across the image.
+          </p>
+        </div>
+        <aside class="cl-hero-why" aria-label="Why it matters">
+          <span class="cl-hero-why-label">WHY IT MATTERS</span>
+          <p class="cl-hero-why-text">
+            Content-blind embedding leaves statistical fingerprints that modern detectors read easily.
+            Steering edits into textured, hard-to-model regions is what keeps hidden data hidden — the
+            difference between private communication and a flagged file.
+          </p>
+        </aside>
+      </header>
+
+      <div class="hero-cta">
         <button id="quick-demo-btn" class="btn btn-accent btn-lg">
           ▶ Quick Demo
         </button>
-      </section>
+      </div>
 
       <!-- ─── Onboarding ──────────────────────────────────────────── -->
       <section id="onboarding" class="onboarding" aria-label="Getting started">
