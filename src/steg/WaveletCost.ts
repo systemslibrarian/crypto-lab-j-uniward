@@ -483,6 +483,105 @@ export async function computeCostMatrixSlow(
   return costs;
 }
 
+/**
+ * probeBlock — single-block "why is this cost cheap/expensive?" explainer.
+ *
+ * Perturbs ONE 8×8 block by a +1 quantization step in a chosen DCT mode, then
+ * measures, subband by subband, how much that ripple disturbs the Daubechies-8
+ * wavelet decomposition *relative to the cover magnitude already there*. This is
+ * the literal J-UNIWARD definition (same as {@link computeCostMatrixSlow}),
+ * evaluated for a single block so it runs instantly on hover/click.
+ *
+ * The teaching payoff: a change dropped into busy texture (large |W_cover|) is
+ * divided by a large denominator → small normalized disturbance → LOW cost. The
+ * same change in a flat region (tiny |W_cover|) is divided by ~σ → huge cost.
+ * The learner SEES the denominator, not just the verdict.
+ *
+ * Returns per-subband {deltaSum, coverMag, contribution} plus the total cost —
+ * all computed, never faked.
+ */
+export interface SubbandProbe {
+  name: string;        // 'LH1'…'HH3'
+  level: 1 | 2 | 3;
+  deltaSum: number;    // Σ |ΔW| in this subband (the raw ripple energy)
+  coverMag: number;    // Σ |W_cover| in this subband (the denominator magnitude)
+  contribution: number; // Σ |ΔW| / (|W_cover| + σ) — this subband's share of the cost
+}
+
+export interface BlockProbe {
+  subbands: SubbandProbe[];
+  totalCost: number;   // Σ over subbands — the J-UNIWARD ρ for this (block, mode)
+  q: number;           // quantization step applied (the size of the ±1 change)
+  coeffNat: number;    // natural DCT index perturbed (row*8+col)
+}
+
+const PROBE_BAND_NAMES: [keyof WaveletSubbands, string, 1 | 2 | 3][] = [
+  ['LH1', 'LH1', 1], ['HL1', 'HL1', 1], ['HH1', 'HH1', 1],
+  ['LH2', 'LH2', 2], ['HL2', 'HL2', 2], ['HH2', 'HH2', 2],
+  ['LH3', 'LH3', 3], ['HL3', 'HL3', 3], ['HH3', 'HH3', 3],
+];
+
+export function probeBlock(
+  lumaPixels: Float32Array,
+  quantTable: Uint16Array,
+  blocksWide: number,
+  blocksHigh: number,
+  bRow: number,
+  bCol: number,
+  zigzagIndex: number = 1, // which DCT mode to perturb (default: first AC)
+): BlockProbe {
+  const rows = blocksHigh * 8;
+  const cols = blocksWide * 8;
+  const img = new Float64Array(lumaPixels.length);
+  for (let i = 0; i < img.length; i++) img[i] = lumaPixels[i];
+
+  // Padded patch around the block (matches the slow reference's PAD).
+  const PAD = 32;
+  const pRow = bRow * 8, pCol = bCol * 8;
+  const pr0 = Math.max(0, pRow - PAD);
+  const pc0 = Math.max(0, pCol - PAD);
+  const pr1 = Math.min(rows, pRow + 8 + PAD);
+  const pc1 = Math.min(cols, pCol + 8 + PAD);
+  const ph = pr1 - pr0, pw = pc1 - pc0;
+
+  const patch = new Float64Array(ph * pw);
+  for (let r = 0; r < ph; r++)
+    for (let c = 0; c < pw; c++)
+      patch[r * pw + c] = img[(pr0 + r) * cols + (pc0 + c)];
+
+  const nat = ZZ_TO_NAT_LOCAL[zigzagIndex];
+  const k = nat >> 3, l = nat & 7;
+  const q = quantTable[zigzagIndex] || 1;
+  const basis = BASIS_CACHE[k * 8 + l];
+
+  const perturbed = new Float64Array(patch);
+  const br = pRow - pr0, bc = pCol - pc0;
+  for (let px = 0; px < 8; px++)
+    for (let py = 0; py < 8; py++)
+      perturbed[(br + px) * pw + (bc + py)] += q * basis[px * 8 + py];
+
+  const coverSub = wavelet3Level(patch, ph, pw) as unknown as Record<string, Float64Array>;
+  const pertSub  = wavelet3Level(perturbed, ph, pw) as unknown as Record<string, Float64Array>;
+
+  const subbands: SubbandProbe[] = [];
+  let totalCost = 0;
+  for (const [key, name, level] of PROBE_BAND_NAMES) {
+    const cov = coverSub[key as string];
+    const per = pertSub[key as string];
+    let deltaSum = 0, coverMag = 0, contribution = 0;
+    for (let i = 0; i < cov.length; i++) {
+      const d = Math.abs(per[i] - cov[i]);
+      deltaSum += d;
+      coverMag += Math.abs(cov[i]);
+      contribution += d / (Math.abs(cov[i]) + SIGMA);
+    }
+    subbands.push({ name, level, deltaSum, coverMag, contribution });
+    totalCost += contribution;
+  }
+
+  return { subbands, totalCost, q, coeffNat: nat };
+}
+
 // Local copy of ZZ_TO_NAT for this module (avoid cross-module dep on codec internals)
 const ZZ_TO_NAT_LOCAL = new Uint8Array([
    0,  1,  8, 16,  9,  2,  3, 10,

@@ -8,8 +8,9 @@
 
 import { state } from '../state/app-state.ts';
 import { renderHistogram } from './renderers.ts';
-import { renderPlacementMap } from '../analysis/StegAnalysis.ts';
+import { renderPlacementMap, dctHistogram } from '../analysis/StegAnalysis.ts';
 import type { MethodStats, DetectLabel } from '../analysis/StegAnalysis.ts';
+import { wireGlossary } from './glossary.ts';
 
 const changesCanvas = document.getElementById('changes-canvas') as HTMLCanvasElement;
 const changesLegend = document.getElementById('changes-legend');
@@ -85,11 +86,13 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
   // ── Exposure bars: mean cost-percentile of each method's changes ──
   let html = `<div class="analysis-bars">
     <h3 class="section-label">Change exposure
+      <span class="proxy-tag" title="This bar measures placement, not detection">placement proxy — not a detector</span>
       <span class="tooltip-trigger" tabindex="0" aria-label="What is change exposure?">ⓘ
         <span class="tooltip-content">Each change is ranked against the J-UNIWARD cost map.
         Exposure is the average cost-percentile of a method's changes: 0% means every change
         landed in the most textured, hardest-to-model coefficients; 100% means the smoothest,
-        most conspicuous ones. Lower is stealthier — this is the distortion J-UNIWARD minimises.</span>
+        most conspicuous ones. Lower is stealthier — this is the distortion J-UNIWARD minimises.
+        It predicts resistance but does not prove undetectability; a lower bar is not "provably safe".</span>
       </span>
     </h3>`;
 
@@ -108,10 +111,12 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
       </div>
       <span class="bar-value" style="color:${color};">${valDisplay}</span>
       <span class="bar-badge" style="color:${color};">${s.label}</span>
-    </div>`;
+    </div>
+    <p class="detector-note text-xs">What a real detector would see: ${detectorNote(m.key)}</p>`;
   }
 
-  html += `<p class="text-muted text-xs">Lower exposure = changes hidden in texture = harder to detect</p></div>`;
+  html += `<p class="text-muted text-xs">Lower exposure = changes hidden in texture = harder to detect —
+    but this is where changes <em>land</em>, not the output of an SRM/SRNet detector.</p></div>`;
 
   // ── Active-method detail ──
   const s: MethodStats = state.analysisResult[method];
@@ -145,10 +150,24 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
 
     <div class="hist-wrap">
       <p class="text-muted text-xs">DCT coefficient histogram (non-DC, ±64 range)</p>
-      <canvas id="hist-canvas" class="hist-canvas"></canvas>
+      <canvas id="hist-canvas" class="hist-canvas"
+        role="img" aria-label="DCT coefficient histogram: after-embedding bars with the cover outline overlaid"></canvas>
+      ${method === 'f5' ? `<p class="hist-callout" role="note">
+        <span class="hist-callout-arrow" aria-hidden="true">▲</span>
+        <strong>The F5 tell:</strong> compare the solid bars to the faint <em>cover</em> outline.
+        <span data-term="shrinkage">Shrinkage</span> suppresses the <strong>±1</strong> buckets flanking
+        zero and piles coefficients up at 0 — a step near the center no cover image has. That deformation,
+        not any single p-value, is what a histogram attack reads.</p>` :
+        method === 'lsb' ? `<p class="hist-callout" role="note">
+        LSB spreads its ±1 changes evenly across the whole spectrum, so its histogram barely moves from the
+        cover outline — its tell is spatial (pixel pairs), not here.</p>` :
+        `<p class="hist-callout" role="note">
+        J-UNIWARD's adaptive placement leaves the coefficient histogram almost identical to the cover outline —
+        no <span data-term="shrinkage">shrinkage</span> step, few changes, all in busy texture.</p>`}
     </div>`;
 
   statsContainer.innerHTML = html;
+  wireGlossary(statsContainer);
 
   // Placement map: this method's changes drawn over the cost terrain.
   if (state.costs && state.decoded) {
@@ -165,12 +184,30 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
 
   requestAnimationFrame(() => {
     const hc = document.getElementById('hist-canvas') as HTMLCanvasElement | null;
-    if (hc) renderHistogram(hc, s.dctHist);
+    if (hc) {
+      const coverHist = state.decoded ? dctHistogram(state.decoded.dctCoeffs) : undefined;
+      renderHistogram(hc, s.dctHist, {
+        coverHist,
+        highlightShrinkage: method === 'f5',
+      });
+    }
   });
 }
 
 function methodLabel(method: 'lsb' | 'f5' | 'juniward'): string {
   return method === 'lsb' ? 'LSB' : method === 'f5' ? 'F5' : 'J-UNIWARD';
+}
+
+/** One-line "what a real detector would actually pick up" per method. */
+function detectorNote(method: 'lsb' | 'f5' | 'juniward'): string {
+  switch (method) {
+    case 'lsb':
+      return 'a strong spatial pair-of-values signature plus disturbed DC/flat terms — flagged by even simple first-order tests.';
+    case 'f5':
+      return 'the shrinkage step in the ±1 histogram buckets, readable by classic F5/chi-square-style attacks.';
+    case 'juniward':
+      return 'little in first-order stats; modern SRM/SRNet feature detectors are still needed, and can succeed at high payloads.';
+  }
 }
 
 function methodExplanation(method: 'lsb' | 'f5' | 'juniward'): string {

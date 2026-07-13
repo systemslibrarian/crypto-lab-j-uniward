@@ -12,6 +12,9 @@ import { setupThemeToggle } from './ui/theme.ts';
 import { setupDropzone, loadNextSample, setOnImageLoaded } from './ui/dropzone.ts';
 import { prefillForDemo } from './ui/embed-panel.ts';
 import { updateAnalysisPanel } from './ui/analysis-panel.ts';
+import { activateMechanismPanel } from './ui/mechanism-panel.ts';
+import { setupStcWalkthrough } from './ui/stc-walkthrough.ts';
+import { wireGlossary } from './ui/glossary.ts';
 import { state } from './state/app-state.ts';
 
 // Side-effect imports — these register their own event listeners on import
@@ -25,10 +28,17 @@ import './ui/extract-panel.ts';
 setupThemeToggle();
 setupDropzone();
 
-// Connect image-loaded callback to update analysis panel
+// Wire the plain-English glossary onto all static data-term hosts in the page.
+wireGlossary(document);
+
+// STC / Viterbi stepped schematic (always available, below the fold).
+setupStcWalkthrough();
+
+// Connect image-loaded callback to update analysis panel + open the cost probe.
 setOnImageLoaded(() => {
   state.analysisResult = null;
   updateAnalysisPanel('juniward');
+  activateMechanismPanel();
 });
 
 // ─── Quick Demo button ───────────────────────────────────────────────────────

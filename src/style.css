@@ -888,7 +888,7 @@ input[type='range'] { width: 100%; accent-color: var(--input-focus); }
 /* ─── DCT histogram ──────────────────────────────────────────────────────── */
 
 .hist-wrap { overflow-x: auto; margin-top: var(--space-sm); }
-.hist-canvas { width: 100%; min-width: 240px; height: 100px; display: block; }
+.hist-canvas { width: 100%; min-width: 240px; height: 120px; display: block; }
 
 /* ─── Changes section ────────────────────────────────────────────────────── */
 
@@ -1073,6 +1073,172 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
 .dropzone:focus-within { outline: 2px solid var(--input-focus); outline-offset: 2px; }
 .method-tab:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
 .preset-btn:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
+
+/* ─── Glossary (plain-English on-ramp for jargon) ────────────────────────── */
+
+/* Inline "term?" chip used at first-use spots (e.g. bpnzac). Icon+text, not
+   color alone: a dotted underline signals it is expandable. */
+.gloss-inline,
+.gloss {
+  position: relative;
+  display: inline;
+  color: var(--text-accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+  font-weight: 600;
+}
+.gloss-inline { font-size: 0.85em; }
+.gloss:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
+
+.gloss-bubble {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 200;
+  width: min(300px, 78vw);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-decoration: none;
+  white-space: normal;
+}
+.gloss-bubble-term { color: var(--text-accent); }
+.gloss-inline:hover .gloss-bubble,
+.gloss-inline:focus .gloss-bubble,
+.gloss:hover .gloss-bubble,
+.gloss:focus .gloss-bubble,
+.gloss.gloss-open .gloss-bubble { display: block; }
+
+/* ─── Mechanism panel: "why does this block cost what it costs?" ──────────── */
+
+.mechanism-panel {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+.mechanism-intro { margin: 0 0 var(--space-sm); }
+.mechanism-body {
+  margin-top: var(--space-sm);
+  border-radius: var(--radius-sm);
+}
+.mechanism-body:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
+
+.mech-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+.mech-block-id { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+.mech-cost-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+.mech-cost-badge.mech-cheap    { color: var(--success-color); border-color: var(--success-color); background-color: var(--success-bg); }
+.mech-cost-badge.mech-moderate { color: var(--warning-text);  border-color: var(--warning-border); background-color: var(--warning-bg); }
+.mech-cost-badge.mech-costly   { color: var(--error-text);    border-color: var(--error-border);  background-color: var(--error-bg); }
+.mech-formula { margin: 0 0 var(--space-sm); }
+
+.mech-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.mech-table th, .mech-table td {
+  padding: 0.25rem 0.4rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mech-table thead th { color: var(--text-secondary); font-weight: 600; text-align: right; }
+.mech-table th.mech-band { text-align: left; color: var(--text-primary); font-weight: 700; }
+.mech-num { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.mech-bar-cell { position: relative; min-width: 90px; }
+.mech-bar {
+  display: inline-block;
+  height: 0.55rem;
+  background-color: var(--text-accent);
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 0.35rem;
+  max-width: 60%;
+}
+.mech-contrib { color: var(--text-primary); }
+
+#cover-canvas { cursor: crosshair; }
+#cover-canvas:focus-visible { outline: 2px solid var(--input-focus); outline-offset: 2px; }
+
+/* ─── Histogram callout (F5 shrinkage tell) ──────────────────────────────── */
+
+.hist-callout {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background-color: var(--bg-tertiary);
+  border-left: 3px solid var(--error-border);
+  border-radius: var(--radius-sm);
+}
+.hist-callout strong { color: var(--text-primary); }
+.hist-callout-arrow { color: var(--error-text); font-weight: 700; }
+
+/* ─── Change-exposure proxy framing ──────────────────────────────────────── */
+
+.proxy-tag {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: 0.1rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--warning-text);
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+.detector-note {
+  margin: 0.1rem 0 var(--space-sm) 4.2rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* ─── STC / Viterbi walkthrough ──────────────────────────────────────────── */
+
+.stc-walkthrough {
+  margin-top: var(--space-2xl);
+  padding: var(--space-lg);
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+.stc-stage {
+  margin: var(--space-md) 0;
+  padding: var(--space-sm);
+  background-color: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+.stc-stage svg { width: 100%; min-width: 360px; height: auto; color: var(--text-secondary); }
+.stc-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+.stc-step-title { margin: var(--space-xs) 0 0; font-weight: 700; color: var(--text-primary); font-size: 0.9rem; }
+.stc-step-caption { margin: var(--space-xs) 0 0; max-width: 70ch; }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 

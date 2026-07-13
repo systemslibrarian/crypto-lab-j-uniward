@@ -296,6 +296,7 @@
                 <div class="form-group">
                   <label for="rate-slider">
                     Embedding Rate: <span id="rate-display">0.10 bpnzac</span>
+                    <span class="gloss-inline" data-term="bpnzac">bpnzac?</span>
                   </label>
                   <input id="rate-slider" type="range" min="0.05" max="0.50" step="0.01" value="0.10"
                     aria-label="Embedding rate" />
@@ -394,10 +395,10 @@
                   <dt>Change exposure</dt>
                   <dd>Where each method's changes land, ranked against the J-UNIWARD cost map. 0% = hidden in
                     the most textured coefficients; 100% = the smoothest, most conspicuous ones. Lower is stealthier.</dd>
-                  <dt>DC / flat coefficients hit</dt>
+                  <dt><span data-term="dc">DC</span> / flat coefficients hit</dt>
                   <dd>Structurally conspicuous edits. J-UNIWARD and F5 never touch them; naïve LSB does.</dd>
-                  <dt>DCT histogram</dt>
-                  <dd>The coefficient distribution. F5's magnitude-shrinkage leaves a visible histogram signature.</dd>
+                  <dt><span data-term="dct">DCT</span> histogram</dt>
+                  <dd>The coefficient distribution. F5's magnitude-<span data-term="shrinkage">shrinkage</span> leaves a visible histogram signature.</dd>
                   <dt>Detectability label</dt>
                   <dd>A rating from placement — "Resistant" through "Detectable" — for the same payload across all three methods.</dd>
                 </dl>
@@ -436,16 +437,42 @@
 
         </div>
 
+        <!-- ─── STC / Viterbi stepped walkthrough ───────────────── -->
+        <section class="stc-walkthrough" aria-labelledby="stc-heading">
+          <h3 id="stc-heading" class="section-label">
+            How STC chooses which coefficients to flip
+            <span class="text-muted text-xs">(schematic)</span>
+          </h3>
+          <p class="text-muted text-xs">
+            The cost map says <em>where</em> hiding is cheap; <span data-term="stc">STC</span> +
+            <span data-term="viterbi">Viterbi</span> decide <em>which</em> coefficients actually carry the
+            payload. This 3-step schematic shows the idea the real embedder implements.
+          </p>
+          <div class="stc-stage">
+            <svg id="stc-svg" viewBox="0 0 400 145" role="img"
+                 aria-label="Schematic of Syndrome-Trellis Code placement over a row of carrier coefficients"></svg>
+          </div>
+          <div class="stc-controls">
+            <button id="stc-prev" class="btn btn-secondary btn-sm" type="button">◀ Prev</button>
+            <span id="stc-step-counter" class="text-muted text-xs">Step 1 of 3</span>
+            <button id="stc-next" class="btn btn-secondary btn-sm" type="button">Next ▶</button>
+          </div>
+          <p id="stc-step-title" class="stc-step-title"></p>
+          <p id="stc-step-caption" class="text-muted text-xs stc-step-caption"></p>
+          <p id="stc-live" class="sr-only" role="status" aria-live="polite"></p>
+        </section>
+
         <!-- ─── Methodology & Limitations ───────────────────────── -->
         <section class="info-section" aria-labelledby="methodology-heading">
           <div class="info-grid">
             <div class="info-card">
               <h3 id="methodology-heading">Methodology</h3>
               <ul>
-                <li><strong>Cost function:</strong> Daubechies-8 three-level wavelet decomposition
-                  measures how much a ±1 DCT change disturbs the image in 9 detail subbands.</li>
-                <li><strong>Embedding:</strong> Syndrome-Trellis Codes (h=12, 4096 states) find the
-                  minimum-distortion modification via Viterbi search.</li>
+                <li><strong>Cost function:</strong> Daubechies-8 three-level
+                  <span data-term="wavelet">wavelet</span> decomposition
+                  measures how much a ±1 <span data-term="dct">DCT</span> change disturbs the image in 9 detail subbands.</li>
+                <li><strong>Embedding:</strong> <span data-term="stc">Syndrome-Trellis Codes</span> (h=12, 4096 states) find the
+                  minimum-distortion modification via <span data-term="viterbi">Viterbi</span> search.</li>
                 <li><strong>Analysis:</strong> each method's changes are re-projected into the quantized
                   DCT domain (LSB via a real forward DCT) and ranked against the cost map by where they land.</li>
               </ul>

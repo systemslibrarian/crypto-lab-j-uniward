@@ -9,9 +9,19 @@ Browser-native implementation of **J-UNIWARD** (JPEG Universal Wavelet Relative 
 - **Cost function:** Daubechies-8 three-level wavelet decomposition assigns a distortion cost to each DCT coefficient — changes in textured regions are "cheaper." Computed in well under a second via precomputed per-mode wavelet footprints (a ~1000× speedup over the literal definition, validated against it in the test suite).
 - **Embedding:** Full Syndrome-Trellis Code (STC, h=12, 4096 states) finds the minimum-distortion modification via Viterbi search (Filler, Judas & Fridrich 2011). The payload is spread across the whole image by a keyed permutation over the full coefficient pool, so changes land in the globally cheapest — most textured — coefficients.
 - **Key schedule:** PBKDF2-SHA-256 (600k iterations) → HKDF domain separation → AES-CTR hat matrix + Fisher-Yates permutation. HMAC-SHA-256 integrity tag; a real embed→download→upload→extract round-trip recovers the message and verifies the tag.
-- **Steganalysis:** Honest three-way comparison (LSB vs F5 vs J-UNIWARD) at the same payload. LSB's spatial edits are re-projected into the quantized DCT domain via a real forward DCT, then every method's changes are ranked against the cost map by *where they land* — the distortion that actually predicts detectability — plus a DCT histogram view.
+- **Steganalysis:** Honest three-way comparison (LSB vs F5 vs J-UNIWARD) at the same payload. LSB's spatial edits are re-projected into the quantized DCT domain via a real forward DCT, then every method's changes are ranked against the cost map by *where they land* — the distortion that actually predicts detectability — plus a DCT histogram view (with the cover distribution overlaid so the F5 shrinkage tell is visible).
 
 Everything runs locally in your browser. No backends, no simulated math, no rigged comparison: at the recommended payloads J-UNIWARD genuinely wins, and the panel shows it honestly.
+
+### Teaching scaffolding (progressive disclosure)
+
+Built for both a newcomer meeting adaptive steganography for the first time and a cryptographer after the subtle details:
+
+1. **Plain-English glossary layer** — load-bearing jargon (`bpnzac`, `DCT`, `wavelet`, `AC`/`DC`, `STC`/`Viterbi`, `shrinkage`) is gated behind a one-line hover/focus gloss wherever it first appears, so the raw acronym never lands cold.
+2. **"Inside the cost" block probe** — click any 8×8 block on the cover image to nudge it by a +1 DCT step and watch the ripple hit all nine wavelet detail subbands, with the *cover-magnitude denominator* shown next to each — so you *see* why busy texture yields low normalized cost. Computed live from the same Daubechies-8 transform the embedder uses; no faked numbers.
+3. **F5 shrinkage annotation** — the DCT histogram overlays the cover distribution and rings/arrows the suppressed ±1 buckets, pointing directly at the tell the demo names.
+4. **STC / Viterbi schematic** — a stepped walkthrough of the keyed permutation spreading the payload, then the trellis choosing the globally cheapest minimum-distortion flip-set over the cost map.
+5. **Placement-proxy framing** — the change-exposure bars are labelled *placement proxy — not a detector* at the point of use, each paired with a one-line "what a real detector would see" note, so a low bar is never misread as "provably safe."
 
 ## When to Use It
 
@@ -73,8 +83,12 @@ Click **▶ Quick Demo** on the live site — it loads a sample image, prefills 
 | Payload presets | Conservative (0.10), Balanced (0.20), Aggressive (0.40) bpnzac |
 | Embedding summary | Payload size, actual rate, carriers used, distortion, metadata status |
 | Visual comparison | Side-by-side cover/stego + 10× amplified difference map |
-| Live steganalysis | Change-exposure bars, "where changes landed" map over the cost terrain, DCT histograms, detectability labels |
-| Method explanations | Teaching text explains *why* each method is more or less detectable |
+| Live steganalysis | Change-exposure bars (labelled *placement proxy — not a detector*), "where changes landed" map over the cost terrain, DCT histograms, detectability labels |
+| Cost-mechanism probe | Click any block to see the ±1 wavelet ripple across 9 subbands and the cover-magnitude denominator that makes texture cheap |
+| Jargon glossary | Hover/focus one-line plain-English glosses for bpnzac, DCT, wavelet, AC/DC, STC/Viterbi, shrinkage |
+| STC/Viterbi schematic | Stepped walkthrough of keyed spreading → candidate flip-sets → minimum-distortion choice |
+| F5 shrinkage callout | Cover histogram overlaid with the ±1 shrinkage buckets ringed and arrowed |
+| Method explanations | Teaching text explains *why* each method is more or less detectable, with a "what a real detector would see" note |
 | Image suitability | Indicator shows whether your image is a good or poor carrier |
 | Round-trip verification | Embed → download → upload → extract with integrity check |
 
@@ -91,6 +105,9 @@ src/
 │   ├── embed-panel.ts   # Embed tab + controls
 │   ├── extract-panel.ts # Extract tab
 │   ├── analysis-panel.ts# Steganalysis comparison
+│   ├── glossary.ts      # Plain-English jargon on-ramp (hover/focus glosses)
+│   ├── mechanism-panel.ts # "Inside the cost" per-block wavelet probe
+│   ├── stc-walkthrough.ts # STC / Viterbi stepped schematic
 │   └── renderers.ts     # Canvas drawing + alerts
 ├── codec/
 │   └── JpegCodec.ts     # Custom JPEG DCT codec
