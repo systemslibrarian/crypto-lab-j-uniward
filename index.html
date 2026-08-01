@@ -17,11 +17,6 @@
     </script>
   </head>
   <body>
-<!-- BEGIN crypto-lab shared header — managed; edit shared-header.html + re-run reapply-header.py
-     Identical on every lab. Self-contained styles. Accents use each demo's own
-     --accent CSS variable (teal #35d6bb fallback). The ONLY per-repo value is the
-     repo name (crypto-lab-j-uniward) in the GitHub link.
-     Source of truth: github.com/systemslibrarian/crypto-lab/shared-header.html -->
 <style>
   .cl-topbar{
     /* The bar is always dark (#0b1512) regardless of page theme, so header
@@ -133,7 +128,6 @@
     else dedupeBanner();
   })();
 </script>
-<!-- END crypto-lab shared header -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
     <div id="app">
 
@@ -334,18 +328,20 @@
                   <div class="thumb-row">
                     <div class="thumb-col">
                       <span class="thumb-label">Cover</span>
-                      <canvas id="cover-thumb"></canvas>
+                      <canvas id="cover-thumb" role="img"
+                        aria-label="Thumbnail of the original cover image, before embedding"></canvas>
                       <span class="text-muted text-xs">original</span>
                     </div>
                     <div class="thumb-col">
                       <span class="thumb-label">Stego</span>
-                      <canvas id="stego-thumb"></canvas>
+                      <canvas id="stego-thumb" role="img"
+                        aria-label="Thumbnail of the stego image, after the message was embedded — visually indistinguishable from the cover"></canvas>
                       <span class="text-muted text-xs">embedded</span>
                     </div>
                   </div>
                   <button id="download-btn" class="btn btn-download">⬇ Download Stego JPEG</button>
                   <div class="diff-section">
-                    <canvas id="diff-canvas"></canvas>
+                    <canvas id="diff-canvas" role="img" aria-labelledby="diff-label"></canvas>
                     <span id="diff-label" class="text-muted text-xs">Pixel difference (10× amplified)</span>
                   </div>
                 </div>
@@ -448,7 +444,8 @@
             <span data-term="viterbi">Viterbi</span> decide <em>which</em> coefficients actually carry the
             payload. This 3-step schematic shows the idea the real embedder implements.
           </p>
-          <div class="stc-stage">
+          <div class="stc-stage" tabindex="0" role="group"
+               aria-label="Syndrome-Trellis Code schematic (scrolls horizontally on narrow screens)">
             <svg id="stc-svg" viewBox="0 0 400 145" role="img"
                  aria-label="Schematic of Syndrome-Trellis Code placement over a row of carrier coefficients"></svg>
           </div>
