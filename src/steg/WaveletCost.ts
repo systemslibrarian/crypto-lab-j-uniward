@@ -1,287 +1,303 @@
 /**
- * WaveletCost — Daubechies-8 three-level wavelet decomposition for J-UNIWARD
+ * WaveletCost — the J-UNIWARD distortion function.
  *
- * Implements a variant of the UNIWARD cost function from:
- *   Holub & Fridrich, "Digital Image Steganography Using Universal Distortion,"
- *   ACM IH&MMSec 2013; and Holub, Fridrich & Denemark, "Universal distortion
- *   function for steganography in an arbitrary domain," EURASIP Journal on
- *   Information Security 2014:1.
+ * Implements the cost function of:
+ *   Holub, Fridrich & Denemark, "Universal distortion function for steganography
+ *   in an arbitrary domain," EURASIP Journal on Information Security 2014:1
+ *   (conference version: Holub & Fridrich, ACM IH&MMSec 2013).
  *   (The WIFS 2012 paper "Designing Steganographic Distortion Using Directional
  *   Filters" is WOW, a different — reciprocal-Hölder — cost function.)
  *
- * DEVIATION FROM THE REFERENCE: UNIWARD sums over the THREE highest-frequency
- * UNDECIMATED subbands of the FIRST decomposition level. This implementation
- * instead sums over 9 subbands of a 3-level DECIMATED decomposition, which is a
- * teaching variant, not the published J-UNIWARD cost.
+ * ── What the paper specifies (Section 3.1–3.2) ───────────────────────────────
  *
- * The cost ρ(i,j) for modifying DCT coefficient (i,j) by ±1 is:
+ * A *directional filter bank* is three linear shift-invariant kernels
  *
- *   ρ(i,j) = Σ_k Σ_{r,c}  |W_k(perturbed)[r,c] - W_k(cover)[r,c]|
- *                          ─────────────────────────────────────────
- *                            |W_k(cover)[r,c]| + σ
+ *     B = { K⁽¹⁾, K⁽²⁾, K⁽³⁾ },   K⁽¹⁾ = h·gᵀ,  K⁽²⁾ = g·hᵀ,  K⁽³⁾ = g·gᵀ
  *
- * where k indexes the 9 detail subbands (LH1, HL1, HH1, LH2, HL2, HH2,
- * LH3, HL3, HH3) and σ = 10^{-6}.
+ * built as outer products of the 1-D wavelet low-pass h and high-pass g decom-
+ * position filters. The *directional residuals* are W⁽ᵏ⁾ = K⁽ᵏ⁾ ⋆ X, a
+ * MIRROR-PADDED convolution, "so that W⁽ᵏ⁾ has again n₁ × n₂ elements" — i.e.
+ * the transform is UNDECIMATED (stationary), and the residuals "coincide with
+ * the FIRST-LEVEL undecimated wavelet LH, HL and HH directional decomposition."
+ * There is no second or third level, and nothing is downsampled.
+ *
+ * The distortion is the sum of relative changes of every wavelet coefficient:
+ *
+ *                3    n₁   n₂   | W⁽ᵏ⁾ᵤᵥ(X) − W⁽ᵏ⁾ᵤᵥ(Y) |
+ *     D(X, Y) =  Σ    Σ    Σ    ─────────────────────────      (Eq. 3)
+ *               k=1  u=1  v=1     σ + | W⁽ᵏ⁾ᵤᵥ(X) |
+ *
+ * σ is a stabilizing constant. Section 5.1: "the optimal [σ] for J-UNIWARD is
+ * 2⁻⁶, which we selected for all experiments with J-UNIWARD and SI-UNIWARD in
+ * this paper." (S-UNIWARD, the spatial-domain variant, uses σ = 1.)
+ *
+ * J-UNIWARD is the additive approximation of (3) in the JPEG domain: the cost
+ * ρ(b, k, l) of changing DCT coefficient (k,l) of block b by one quantization
+ * step is D(X, Y) where Y is the cover with q_kl·B_kl added to that one block.
+ *
+ * ── Wavelet basis ────────────────────────────────────────────────────────────
+ *
+ * The paper's Table 1 compares nine bases and names them exactly as PyWavelets
+ * does — Haar, Daubechies 2/4/8/20, Symlet 8, Coiflet 1, Biorthogonal 4.4/6.8 —
+ * citing wavelets.pybytes.com/wavelet/db8/. So "Daubechies 8" means PyWavelets
+ * `db8`: 8 vanishing moments, SIXTEEN taps (not an 8-tap filter; the paper's
+ * prose calls it "8-tap", but its own Table 1 lists Haar and "Daubechies 2" as
+ * distinct rows with very different results, which is only possible under the
+ * PyWavelets naming, and "Daubechies 4" is the 8-tap filter).
+ *
+ * The paper confirms the tap count independently: it notes that a change to one
+ * DCT coefficient "affects a block of 8×8 pixels and, consequently, 23×23
+ * wavelet coefficients". 23 = 8 + 16 − 1 — the support of an 8-wide change
+ * convolved with a 16-tap filter. That arithmetic only works for db8.
+ *
+ * The coefficients below were derived from the Daubechies construction
+ * (spectral factorization of the degree-7 Bezout polynomial, minimum-phase
+ * root selection) and verified numerically: Σh = √2, Σh² = 1, ⟨h, h(·+2k)⟩ = 0
+ * for k ≠ 0 (max residual 3.1e-16), and 8 vanishing moments (max residual
+ * 3.2e-8 absolute, ~1e-16 relative). They match the filter used by the
+ * reference J-UNIWARD implementation.
+ *
+ * ── Deviations from the reference, stated plainly ────────────────────────────
+ *
+ *  • The DC coefficient is given a wet (infinite) cost so the demo never embeds
+ *    there. The reference lets the cost decide.
+ *  • The demo embeds with a ternary ±1 operation on quantized coefficients and
+ *    does not implement the side-informed (SI-UNIWARD) variant.
+ *
+ * Everything else is the published definition. {@link computeCostMatrix} is a
+ * closed-form evaluation of Eq. 3, not an approximation of it: the test suite
+ * checks it against {@link computeCostMatrixSlow}, which perturbs actual pixels
+ * and re-runs the transform, and the two agree to ~1e-12 relative — at the
+ * image boundary as well as in the interior.
  */
 
-// ─── D8 filter coefficients (Daubechies 1988, exact) ─────────────────────────
+// ─── Daubechies-8 (PyWavelets `db8`) decomposition filters, 16 taps ──────────
 
 const H_LOW = new Float64Array([
-   0.23037781330885523,
-   0.71484657055254151,
-   0.63088076792959036,
-  -0.02798376941698385,
-  -0.18703481171888114,
-   0.030841381835986965,
-   0.032883011666982945,
-  -0.010597401784997278,
+   0.05441584224310401,
+   0.31287159091429995,
+   0.67563073629728980,
+   0.58535468365420730,
+  -0.01582910525635004,
+  -0.28401554296154685,
+   0.00047248457391370,
+   0.12874742662047797,
+  -0.01736930100180724,
+  -0.04408825393079483,
+   0.01398102791739828,
+   0.00874609404740578,
+  -0.00487035299345158,
+  -0.00039174037337695,
+   0.00067544940645057,
+  -0.00011747678412477,
 ]);
 
-// High-pass QMF: g[n] = (-1)^n * h[N-1-n]
-const H_HIGH = new Float64Array(8);
-for (let n = 0; n < 8; n++) {
-  H_HIGH[n] = (n % 2 === 0 ? 1 : -1) * H_LOW[7 - n];
+const TAPS = H_LOW.length;            // 16
+const ANCHOR = (TAPS - 1) >> 1;       // 7 — centring offset for the convolution
+
+// High-pass QMF: g[n] = (−1)ⁿ · h[N−1−n]
+const H_HIGH = new Float64Array(TAPS);
+for (let n = 0; n < TAPS; n++) {
+  H_HIGH[n] = (n % 2 === 0 ? 1 : -1) * H_LOW[TAPS - 1 - n];
 }
 
-// ─── 1D convolution with symmetric (mirror) boundary extension ───────────────
+/**
+ * Stabilizing constant σ. The UNIWARD paper, Section 5.1: the optimal value for
+ * J-UNIWARD is 2⁻⁶, used for every J-UNIWARD and SI-UNIWARD experiment in the
+ * paper. (S-UNIWARD, the spatial variant, uses σ = 1.)
+ */
+const SIGMA = Math.pow(2, -6);        // 0.015625
 
-function conv1D(signal: Float64Array, filter: Float64Array): Float64Array {
-  const N = signal.length;
-  const M = filter.length;          // M = 8 for D8
-  const half = (M - 1) >> 1;        // 3 for M=8
-  const out = new Float64Array(N);
+/** Wet cost — effectively infinite; the embedder never selects these. */
+const WET = 1e8;
 
-  for (let i = 0; i < N; i++) {
-    let sum = 0;
-    for (let k = 0; k < M; k++) {
-      let idx = i - half + k;
-      // Symmetric boundary extension (mirror)
-      if (idx < 0)     idx = -idx - 1;
-      if (idx >= N)    idx = 2 * N - idx - 1;
-      if (idx < 0)     idx = 0;
-      if (idx >= N)    idx = N - 1;
-      sum += filter[M - 1 - k] * signal[idx];  // correlation = convolution with reversed filter
-    }
-    out[i] = sum;
-  }
-  return out;
+// ─── Mirror boundary extension ───────────────────────────────────────────────
+
+/** Reflect an out-of-range index back into [0, n) (whole-sample symmetry). */
+function mirror(i: number, n: number): number {
+  if (n === 1) return 0;
+  const period = 2 * n;
+  let m = ((i % period) + period) % period;
+  if (m >= n) m = period - 1 - m;
+  return m;
 }
 
-/** Downsample by 2 (keep even indices) */
-function downsample(x: Float64Array): Float64Array {
-  const out = new Float64Array(Math.ceil(x.length / 2));
-  for (let i = 0; i < out.length; i++) out[i] = x[i * 2];
-  return out;
+// ─── First-level UNDECIMATED directional residuals ───────────────────────────
+
+/**
+ * The three directional residuals W⁽¹⁾, W⁽²⁾, W⁽³⁾ of the paper, each the same
+ * size as the image (undecimated / stationary transform, mirror-padded).
+ *
+ * K⁽¹⁾ = h·gᵀ (LH), K⁽²⁾ = g·hᵀ (HL), K⁽³⁾ = g·gᵀ (HH), where the LEFT factor
+ * runs down the row axis and the RIGHT factor across the column axis:
+ *
+ *     W[u,v] = Σₐ Σ_b  A[a]·B[b] · X[u+a−ANCHOR, v+b−ANCHOR]
+ *
+ * which separates into a column pass with B followed by a row pass with A.
+ */
+export interface DirectionalResiduals {
+  LH: Float64Array;   // K⁽¹⁾ = h·gᵀ — low down rows, high across columns
+  HL: Float64Array;   // K⁽²⁾ = g·hᵀ
+  HH: Float64Array;   // K⁽³⁾ = g·gᵀ
+  rows: number;
+  cols: number;
 }
 
-// ─── 2D separable single-level decomposition ─────────────────────────────────
+/** Row/column filter pair for each of the three subbands. */
+const BANK: [Float64Array, Float64Array, string][] = [
+  [H_LOW,  H_HIGH, 'LH'],
+  [H_HIGH, H_LOW,  'HL'],
+  [H_HIGH, H_HIGH, 'HH'],
+];
 
-interface Level {
-  LL: Float64Array; width: number; height: number;
-  LH: Float64Array;   // horizontal detail (rows=low, cols=high)
-  HL: Float64Array;   // vertical detail   (rows=high, cols=low)
-  HH: Float64Array;   // diagonal detail   (rows=high, cols=high)
-  sw: number;         // subband width
-  sh: number;         // subband height
-}
-
-function decompose2D(img: Float64Array, rows: number, cols: number): Level {
-  // Step 1: filter and downsample rows
-  const LL_rows = new Float64Array(rows * Math.ceil(cols / 2));
-  const LH_rows = new Float64Array(rows * Math.ceil(cols / 2));
-
-  for (let r = 0; r < rows; r++) {
-    const row = img.subarray(r * cols, r * cols + cols);
-    const rowF64 = row instanceof Float64Array ? row : new Float64Array(row);
-    const lo = conv1D(rowF64, H_LOW);
-    const hi = conv1D(rowF64, H_HIGH);
-    const lod = downsample(lo);
-    const hid = downsample(hi);
-    LL_rows.set(lod, r * lod.length);
-    LH_rows.set(hid, r * hid.length);
-  }
-
-  const sw = Math.ceil(cols / 2);
-  const sh = Math.ceil(rows / 2);
-
-  // Step 2: filter and downsample columns on the row-filtered outputs
-  function filterCols(rowFiltered: Float64Array, filtLo: Float64Array, filtHi: Float64Array) {
-    const outLo = new Float64Array(sh * sw);
-    const outHi = new Float64Array(sh * sw);
-    for (let c = 0; c < sw; c++) {
-      const col = new Float64Array(rows);
-      for (let r = 0; r < rows; r++) col[r] = rowFiltered[r * sw + c];
-      const lo2 = downsample(conv1D(col, filtLo));
-      const hi2 = downsample(conv1D(col, filtHi));
-      for (let r = 0; r < sh; r++) {
-        outLo[r * sw + c] = lo2[r];
-        outHi[r * sw + c] = hi2[r];
+/** One separable undecimated 2-D filtering: columns with B, then rows with A. */
+function residual(
+  img: Float64Array, rows: number, cols: number,
+  A: Float64Array, B: Float64Array,
+): Float64Array {
+  // Pass 1 — along the column axis (v) with B.
+  const tmp = new Float64Array(rows * cols);
+  for (let u = 0; u < rows; u++) {
+    const base = u * cols;
+    for (let v = 0; v < cols; v++) {
+      let s = 0;
+      for (let b = 0; b < TAPS; b++) {
+        s += B[b] * img[base + mirror(v + b - ANCHOR, cols)];
       }
+      tmp[base + v] = s;
     }
-    return [outLo, outHi];
   }
-
-  const [LL, HL] = filterCols(LL_rows, H_LOW, H_HIGH);
-  const [LH, HH] = filterCols(LH_rows, H_LOW, H_HIGH);
-
-  return { LL, LH, HL, HH, width: cols, height: rows, sw, sh };
+  // Pass 2 — along the row axis (u) with A.
+  const out = new Float64Array(rows * cols);
+  for (let u = 0; u < rows; u++) {
+    for (let v = 0; v < cols; v++) {
+      let s = 0;
+      for (let a = 0; a < TAPS; a++) {
+        s += A[a] * tmp[mirror(u + a - ANCHOR, rows) * cols + v];
+      }
+      out[u * cols + v] = s;
+    }
+  }
+  return out;
 }
 
-// ─── 3-level decomposition → 9 detail subbands ───────────────────────────────
-
-interface WaveletSubbands {
-  // Level 1
-  LH1: Float64Array; HL1: Float64Array; HH1: Float64Array;
-  sw1: number; sh1: number;
-  // Level 2
-  LH2: Float64Array; HL2: Float64Array; HH2: Float64Array;
-  sw2: number; sh2: number;
-  // Level 3
-  LH3: Float64Array; HL3: Float64Array; HH3: Float64Array; LL3: Float64Array;
-  sw3: number; sh3: number;
-}
-
-function wavelet3Level(img: Float64Array, rows: number, cols: number): WaveletSubbands {
-  const l1 = decompose2D(img, rows, cols);
-  const l2 = decompose2D(l1.LL, l1.sh, l1.sw);
-  const l3 = decompose2D(l2.LL, l2.sh, l2.sw);
-
+/** Compute all three first-level undecimated directional residuals. */
+export function directionalResiduals(
+  img: Float64Array, rows: number, cols: number,
+): DirectionalResiduals {
   return {
-    LH1: l1.LH, HL1: l1.HL, HH1: l1.HH, sw1: l1.sw, sh1: l1.sh,
-    LH2: l2.LH, HL2: l2.HL, HH2: l2.HH, sw2: l2.sw, sh2: l2.sh,
-    LH3: l3.LH, HL3: l3.HL, HH3: l3.HH, LL3: l3.LL, sw3: l3.sw, sh3: l3.sh,
+    LH: residual(img, rows, cols, BANK[0][0], BANK[0][1]),
+    HL: residual(img, rows, cols, BANK[1][0], BANK[1][1]),
+    HH: residual(img, rows, cols, BANK[2][0], BANK[2][1]),
+    rows, cols,
   };
 }
 
-// ─── DCT basis functions (for per-coefficient perturbation) ──────────────────
-// B_kl[x,y] = C(k)*C(l)/4 * cos((2x+1)kπ/16) * cos((2y+1)lπ/16)
+// ─── DCT basis, separably ────────────────────────────────────────────────────
+//
+// B_kl[x,y] = ¼·C(k)·C(l)·cos((2x+1)kπ/16)·cos((2y+1)lπ/16)
+//           = v_k[x] · v_l[y]    with   v_k[x] = ½·C(k)·cos((2x+1)kπ/16)
 
+/** The eight 1-D DCT basis vectors, v_k[0..7]. */
+const V: Float64Array[] = [];
+for (let k = 0; k < 8; k++) {
+  const v = new Float64Array(8);
+  const ck = k === 0 ? Math.SQRT1_2 : 1.0;
+  for (let x = 0; x < 8; x++) {
+    v[x] = 0.5 * ck * Math.cos((2 * x + 1) * k * Math.PI / 16);
+  }
+  V.push(v);
+}
+
+/** Full 8×8 basis pattern B_kl in natural (row-major) order — used by the
+ *  literal reference path, which perturbs actual pixels. */
 function dctBasis(k: number, l: number): Float64Array {
   const b = new Float64Array(64);
-  const ck = k === 0 ? Math.SQRT1_2 : 1.0;
-  const cl = l === 0 ? Math.SQRT1_2 : 1.0;
   for (let x = 0; x < 8; x++) {
-    for (let y = 0; y < 8; y++) {
-      b[x * 8 + y] = 0.25 * ck * cl *
-        Math.cos((2 * x + 1) * k * Math.PI / 16) *
-        Math.cos((2 * y + 1) * l * Math.PI / 16);
-    }
+    for (let y = 0; y < 8; y++) b[x * 8 + y] = V[k][x] * V[l][y];
   }
   return b;
 }
 
-// Precompute all 64 DCT basis functions (indexed zigzag→natural inside each 8×8)
-// Actually we index by straight natural order (row=k, col=l), k*8+l
 const BASIS_CACHE: Float64Array[] = [];
-for (let k = 0; k < 8; k++)
-  for (let l = 0; l < 8; l++)
-    BASIS_CACHE.push(dctBasis(k, l));
+for (let k = 0; k < 8; k++) for (let l = 0; l < 8; l++) BASIS_CACHE.push(dctBasis(k, l));
 
-// ─── J-UNIWARD cost matrix ────────────────────────────────────────────────────
-
-// Stabilizing constant σ from the UNIWARD distortion (Holub & Fridrich, IH&MMSec
-// 2013). NOTE: the reference J-UNIWARD uses σ = 2^-6; this demo uses a much
-// smaller σ because its wavelet decomposition differs from the reference (see the
-// header comment), so the two values are not directly comparable.
-const SIGMA = 1e-6;
-
-// ─── Fast cost via precomputed basis wavelet "footprints" ────────────────────
+// ─── 1-D ripple profiles ─────────────────────────────────────────────────────
 //
-// Modifying DCT coefficient (k,l) of an 8×8 block by +1 adds the fixed spatial
-// pattern q_{kl}·B_{kl} at that block. The wavelet transform is linear, so the
-// change it induces in each detail subband is q_{kl} times the wavelet response
-// of B_{kl} — a *fixed* pattern. Because blocks sit 8 px apart and the 3-level
-// transform decimates by 2 three times (8 = 2³), every block maps to an even
-// position at every level: there is NO downsampling-phase variation, so each
-// block's response is the *same* footprint, merely translated.
+// Because the transform is UNDECIMATED it is shift-invariant, so a unit change
+// in DCT mode (k,l) of one block makes the same ripple wherever the block sits.
+// And because the kernel K⁽ᵐ⁾ = A·Bᵀ and the basis B_kl = v_k·v_lᵀ are BOTH
+// outer products — and the mirror padding acts on each axis independently —
+// the whole 23×23 ripple factorises along the two axes, at the image boundary
+// as well as in the interior:
 //
-// We therefore compute the 64 basis footprints once, then the cost of every
-// (block, coefficient) is a small weighted sum of those footprint magnitudes
-// against the global cover-subband reciprocal denominators. This replaces
-// ~(blocks × 64) full wavelet decompositions with a handful of localized sums.
+//     ΔW⁽ᵐ⁾[u,v] = q · gA⁽ᵐ⁾_k[u] · gB⁽ᵐ⁾_l[v]
+//
+//     g_k[u] = Σₐ F[a] · v_k[ mirror(u + a − ANCHOR) − b₀ ]
+//
+// (v_k[·] is zero outside [0,8); b₀ is the block's first pixel on that axis.)
+// So |ΔW| = |gA_k[u]|·|gB_l[v]| and the cost separates into a column pass and a
+// row pass. Away from the edges g is just the translated 23-tap footprint; at
+// an edge the reflected copy of the ripple folds back onto it and g accounts
+// for that exactly. This makes the fast path an EXACT evaluation of Eq. 3
+// everywhere, not an approximation of it.
 
-/** One detail subband's contribution to a basis footprint. */
-interface SubbandFootprint {
-  level: 1 | 2 | 3;   // origin scale: block (r,c) → subband (r*4/2/1)
-  band: 0 | 1 | 2;    // 0=LH, 1=HL, 2=HH within the level
-  dr: Int32Array;     // row offsets relative to the block's subband origin
-  dc: Int32Array;     // col offsets
-  val: Float64Array;  // |wavelet response| at each offset (for unit coefficient)
-}
+/** Nonzero entries of one axis's |g| profile. */
+interface Profile { idx: Int32Array; val: Float64Array; }
 
-/** Footprints for all 64 DCT modes, indexed by zigzag index. Computed lazily once. */
-let FOOTPRINTS: SubbandFootprint[][] | null = null;
-
-function buildFootprints(): SubbandFootprint[][] {
-  const R = 128;                 // reference canvas — large enough for the 3-level D8 support
-  const refBlockPx = 64;         // place the basis at pixel (64,64): even at every level
-  const EPS_REL = 1e-6;          // drop numerical dust relative to the mode's peak response
-
-  const out: SubbandFootprint[][] = [];
-
-  for (let zi = 0; zi < 64; zi++) {
-    const nat = ZZ_TO_NAT_LOCAL[zi];
-    if (nat === 0) { out.push([]); continue; } // DC — never embedded
-
-    const k = nat >> 3;
-    const l = nat & 7;
-    const basis = BASIS_CACHE[k * 8 + l];
-
-    // Place the unit basis pattern at the reference block on a zero canvas.
-    const canvas = new Float64Array(R * R);
-    for (let px = 0; px < 8; px++) {
-      for (let py = 0; py < 8; py++) {
-        canvas[(refBlockPx + px) * R + (refBlockPx + py)] = basis[px * 8 + py];
-      }
-    }
-    const sub = wavelet3Level(canvas, R, R);
-
-    const bands: [Float64Array, number, number, 1 | 2 | 3, 0 | 1 | 2][] = [
-      [sub.LH1, sub.sw1, sub.sh1, 1, 0], [sub.HL1, sub.sw1, sub.sh1, 1, 1], [sub.HH1, sub.sw1, sub.sh1, 1, 2],
-      [sub.LH2, sub.sw2, sub.sh2, 2, 0], [sub.HL2, sub.sw2, sub.sh2, 2, 1], [sub.HH2, sub.sw2, sub.sh2, 2, 2],
-      [sub.LH3, sub.sw3, sub.sh3, 3, 0], [sub.HL3, sub.sw3, sub.sh3, 3, 1], [sub.HH3, sub.sw3, sub.sh3, 3, 2],
-    ];
-
-    // Peak magnitude across all subbands → relative threshold.
-    let peak = 0;
-    for (const [arr] of bands) for (let i = 0; i < arr.length; i++) peak = Math.max(peak, Math.abs(arr[i]));
-    const thresh = peak * EPS_REL;
-
-    const modeFootprints: SubbandFootprint[] = [];
-    for (const [arr, sw, sh, level, band] of bands) {
-      // refBlockPx maps to subband origin refBlockPx / 2^level (no phase variation
-      // because refBlockPx is a multiple of 8): level1→32, level2→16, level3→8.
-      const refOrigin = refBlockPx >> level;
-      const drs: number[] = [];
-      const dcs: number[] = [];
-      const vals: number[] = [];
-      for (let r = 0; r < sh; r++) {
-        for (let c = 0; c < sw; c++) {
-          const v = arr[r * sw + c];
-          if (Math.abs(v) <= thresh) continue;
-          drs.push(r - refOrigin);
-          dcs.push(c - refOrigin);
-          vals.push(Math.abs(v));
+/** Profiles indexed [blockIndexOnThisAxis][filter 0=h,1=g][basis mode 0..7]. */
+function axisProfiles(nBlocks: number, n: number): Profile[][][] {
+  const out: Profile[][][] = [];
+  for (let b = 0; b < nBlocks; b++) {
+    const b0 = b * 8;
+    // g can only be nonzero where some tap reaches the block; the reflected
+    // copy stays within the same neighbourhood, so this window is ample.
+    const lo = Math.max(0, b0 - 2 * TAPS - 8);
+    const hi = Math.min(n, b0 + 2 * TAPS + 16);
+    const perFilter: Profile[][] = [];
+    for (let fi = 0; fi < 2; fi++) {
+      const F = fi === 0 ? H_LOW : H_HIGH;
+      const perMode: Profile[] = [];
+      for (let k = 0; k < 8; k++) {
+        const idx: number[] = [], val: number[] = [];
+        for (let u = lo; u < hi; u++) {
+          let s = 0;
+          for (let a = 0; a < TAPS; a++) {
+            const x = mirror(u + a - ANCHOR, n) - b0;
+            if (x >= 0 && x < 8) s += F[a] * V[k][x];
+          }
+          if (s !== 0) { idx.push(u); val.push(Math.abs(s)); }
         }
+        perMode.push({ idx: Int32Array.from(idx), val: Float64Array.from(val) });
       }
-      modeFootprints.push({
-        level, band,
-        dr: Int32Array.from(drs),
-        dc: Int32Array.from(dcs),
-        val: Float64Array.from(vals),
-      });
+      perFilter.push(perMode);
     }
-    out.push(modeFootprints);
+    out.push(perFilter);
   }
   return out;
 }
 
+/** Which 1-D filter runs down the rows / across the columns, per subband. */
+const ROW_FILT = [0, 1, 1] as const;   // h, g, g
+const COL_FILT = [1, 0, 1] as const;   // g, h, g
+
+// ─── J-UNIWARD cost matrix ───────────────────────────────────────────────────
+
 /**
- * Compute J-UNIWARD distortion cost ρ for every DCT coefficient — fast path.
+ * Compute the J-UNIWARD cost ρ for every (block, DCT coefficient).
  *
- * Mathematically equivalent to {@link computeCostMatrixSlow} for interior
- * blocks (uses the textbook global cover-subband denominator), but ~1000×
- * faster. Same signature and output shape.
+ * This is Eq. 3 of the paper evaluated exactly, exploiting the shift-invariance
+ * of the undecimated transform and the separability of both the filter bank and
+ * the DCT basis. {@link computeCostMatrixSlow} evaluates the same quantity by
+ * brute force (perturb pixels, re-transform) and the test suite checks the two
+ * agree to floating-point tolerance on interior blocks.
+ *
+ * @param lumaPixels  Spatial luma values (Float32Array, width×height)
+ * @param quantTable  Luma quantization table (Uint16Array, 64 values, zigzag)
+ * @param blocksWide  Number of 8×8 blocks per row
+ * @param blocksHigh  Number of 8×8 block rows
+ * @returns           One Float64Array(64) of zigzag-ordered costs per block.
+ *                    DC is wet (1e8).
  */
 export async function computeCostMatrix(
   lumaPixels: Float32Array,
@@ -294,84 +310,88 @@ export async function computeCostMatrix(
   const rows = blocksHigh * 8;
   const cols = blocksWide * 8;
 
-  // Cover wavelet (computed once) → reciprocal denominators 1/(|W_n| + σ).
   const img = new Float64Array(lumaPixels.length);
   for (let i = 0; i < img.length; i++) img[i] = lumaPixels[i];
-  const cover = wavelet3Level(img, rows, cols);
 
-  const recip = (a: Float64Array): Float64Array => {
-    const o = new Float64Array(a.length);
-    for (let i = 0; i < a.length; i++) o[i] = 1 / (Math.abs(a[i]) + SIGMA);
+  // Cover residuals → reciprocal denominators 1 / (σ + |W⁽ᵐ⁾|).
+  const cover = directionalResiduals(img, rows, cols);
+  const recip: Float64Array[] = [cover.LH, cover.HL, cover.HH].map(w => {
+    const o = new Float64Array(w.length);
+    for (let i = 0; i < w.length; i++) o[i] = 1 / (SIGMA + Math.abs(w[i]));
     return o;
-  };
-  // Indexed [level-1][band] → { denom, sw, sh }
-  const denom = [
-    [{ d: recip(cover.LH1), sw: cover.sw1, sh: cover.sh1 }, { d: recip(cover.HL1), sw: cover.sw1, sh: cover.sh1 }, { d: recip(cover.HH1), sw: cover.sw1, sh: cover.sh1 }],
-    [{ d: recip(cover.LH2), sw: cover.sw2, sh: cover.sh2 }, { d: recip(cover.HL2), sw: cover.sw2, sh: cover.sh2 }, { d: recip(cover.HH2), sw: cover.sw2, sh: cover.sh2 }],
-    [{ d: recip(cover.LH3), sw: cover.sw3, sh: cover.sh3 }, { d: recip(cover.HL3), sw: cover.sw3, sh: cover.sh3 }, { d: recip(cover.HH3), sw: cover.sw3, sh: cover.sh3 }],
-  ];
-
-  if (!FOOTPRINTS) FOOTPRINTS = buildFootprints();
-  const footprints = FOOTPRINTS;
+  });
 
   const costs: Float64Array[] = Array.from({ length: blockCount }, () => new Float64Array(64));
 
-  for (let bRow = 0; bRow < blocksHigh; bRow++) {
-    // Yield periodically so the UI (and progress callback) stays responsive.
-    if (bRow > 0 && bRow % 8 === 0) {
-      onProgress?.(bRow / blocksHigh);
-      await new Promise(r => setTimeout(r, 0));
-    }
-    for (let bCol = 0; bCol < blocksWide; bCol++) {
-      const bi = bRow * blocksWide + bCol;
-      const blockCosts = costs[bi];
+  const rowProf = axisProfiles(blocksHigh, rows);
+  const colProf = axisProfiles(blocksWide, cols);
 
-      for (let zi = 0; zi < 64; zi++) {
-        const nat = ZZ_TO_NAT_LOCAL[zi];
-        if (nat === 0) { blockCosts[zi] = 1e8; continue; } // DC: wet
+  // Accumulate subband by subband, and within a subband column-mode by
+  // column-mode, so only one Float64Array(rows × blocksWide) is live at a time.
+  const T = new Float64Array(rows * blocksWide);
+  const steps = 3 * 8;
+  let step = 0;
 
-        const q = quantTable[zi];
-        const modeFp = footprints[zi];
-        let cost = 0;
+  for (let m = 0; m < 3; m++) {
+    const R = recip[m];
+    const rf = ROW_FILT[m];
+    const cf = COL_FILT[m];
 
-        for (let s = 0; s < modeFp.length; s++) {
-          const fp = modeFp[s];
-          const band = denom[fp.level - 1][fp.band];
-          const dArr = band.d;
-          const sw = band.sw, sh = band.sh;
-          // Block's subband origin at this level (no phase variation).
-          const oRow = bRow * (fp.level === 1 ? 4 : fp.level === 2 ? 2 : 1);
-          const oCol = bCol * (fp.level === 1 ? 4 : fp.level === 2 ? 2 : 1);
-          const dr = fp.dr, dc = fp.dc, val = fp.val;
-          for (let i = 0; i < val.length; i++) {
-            const r = oRow + dr[i];
-            const c = oCol + dc[i];
-            if (r < 0 || r >= sh || c < 0 || c >= sw) continue;
-            cost += val[i] * dArr[r * sw + c];
+    for (let l = 0; l < 8; l++) {
+      // T[u, bCol] = Σ_v |gB_l[v]| · recip[u, v]
+      for (let u = 0; u < rows; u++) {
+        const rBase = u * cols;
+        const tBase = u * blocksWide;
+        for (let bCol = 0; bCol < blocksWide; bCol++) {
+          const p = colProf[bCol][cf][l];
+          const pi = p.idx, pv = p.val;
+          let s = 0;
+          for (let i = 0; i < pi.length; i++) s += pv[i] * R[rBase + pi[i]];
+          T[tBase + bCol] = s;
+        }
+      }
+
+      // ρ += Σ_u |gA_k[u]| · T[u, bCol]
+      for (let bRow = 0; bRow < blocksHigh; bRow++) {
+        for (let bCol = 0; bCol < blocksWide; bCol++) {
+          const blockCosts = costs[bRow * blocksWide + bCol];
+          for (let k = 0; k < 8; k++) {
+            const p = rowProf[bRow][rf][k];
+            const pi = p.idx, pv = p.val;
+            let s = 0;
+            for (let i = 0; i < pi.length; i++) s += pv[i] * T[pi[i] * blocksWide + bCol];
+            blockCosts[NAT_TO_ZZ[k * 8 + l]] += s;
           }
         }
-        blockCosts[zi] = q * cost;
       }
+
+      step++;
+      onProgress?.(step / steps);
+      // Yield so the UI stays responsive.
+      await new Promise(r => setTimeout(r, 0));
     }
   }
-  onProgress?.(1);
 
+  // Scale by the quantization step and mark DC wet.
+  for (let bi = 0; bi < blockCount; bi++) {
+    const c = costs[bi];
+    for (let zi = 0; zi < 64; zi++) c[zi] *= quantTable[zi];
+    c[0] = WET;
+  }
+
+  onProgress?.(1);
   return costs;
 }
 
 /**
- * Reference cost implementation — the literal definition: for every (block,
- * coefficient) it perturbs the image by q·B_{kl} and re-runs the wavelet
- * decomposition on a padded patch. Correct but ~1000× slower than
- * {@link computeCostMatrix}. Kept only as the oracle the test suite validates
- * the fast path against (run `SLOW=1 npm test`); the app never calls it.
+ * Reference cost implementation — the literal definition, by brute force.
  *
- * @param lumaPixels  Spatial luma values (Float32Array, width×height)
- * @param quantTable  Luma quantization table (Uint16Array, 64 values, zigzag)
- * @param blocksWide  Number of 8×8 blocks per row
- * @param blocksHigh  Number of 8×8 block rows
- * @returns           Array of length blockCount, each a Float64Array(64) of costs
- *                    in zigzag order.  Wet cost = 1e8 (effectively infinity).
+ * For every (block, coefficient) it adds q·B_kl to the cover pixels, recomputes
+ * the three first-level undecimated directional residuals on a padded patch,
+ * and sums |ΔW| / (σ + |W_cover|) over all three subbands. Correct but orders
+ * of magnitude slower than {@link computeCostMatrix}, which computes the same
+ * quantity in closed form. Kept as the oracle the test suite validates the fast
+ * path against; the app never calls it.
  */
 export async function computeCostMatrixSlow(
   lumaPixels: Float32Array,
@@ -383,111 +403,59 @@ export async function computeCostMatrixSlow(
   const rows = blocksHigh * 8;
   const cols = blocksWide * 8;
 
-  // Convert to Float64 for wavelet computation
   const img = new Float64Array(lumaPixels.length);
   for (let i = 0; i < img.length; i++) img[i] = lumaPixels[i];
 
-  // Cover wavelet subbands
-  const coverSub = wavelet3Level(img, rows, cols);
-
-  // Output cost arrays
   const costs: Float64Array[] = Array.from({ length: blockCount }, () => new Float64Array(64));
 
-  // For each block and each DCT coefficient compute cost
-  // We use the linearity of the wavelet transform:
-  //   ΔI = q_{kl} * B_{kl} added to the 8×8 block
-  //   Δcost = Σ_n Σ_{r,c} |ΔW_n(r,c)| * invDenom_n(r,c)
-  // We perturb the image for each (block, kl) and recompute affected subbands.
-  // For efficiency we only recompute the affected region using the compact D8 support.
-
-  // D8 filter support: length 8.  After L levels of decimation the support
-  // of the synthesis filter in the signal domain is (2^L - 1)*(M-1)+1 pixels
-  // on each side.  We pad the block patch by PAD pixels for safe recomputation.
-  const PAD = 32; // generous padding for 3-level D8; exact = (2^3)*(8-1) = 56/2 = 28
+  // The ripple reaches ANCHOR+7 = 14 px past the block and needs another TAPS−1
+  // pixels of context to evaluate; 32 is comfortably more than enough.
+  const PAD = 32;
 
   for (let bRow = 0; bRow < blocksHigh; bRow++) {
-    // Yield to browser every 4 block-rows to prevent UI freeze
-    if (bRow > 0 && bRow % 4 === 0) {
-      await new Promise(r => setTimeout(r, 0));
-    }
+    await new Promise(r => setTimeout(r, 0));
     for (let bCol = 0; bCol < blocksWide; bCol++) {
       const bi = bRow * blocksWide + bCol;
+      const pRow = bRow * 8, pCol = bCol * 8;
 
-      // Block top-left pixel in image
-      const pRow = bRow * 8;
-      const pCol = bCol * 8;
-
-      // Patch bounds (clamped to image)
       const pr0 = Math.max(0, pRow - PAD);
       const pc0 = Math.max(0, pCol - PAD);
       const pr1 = Math.min(rows, pRow + 8 + PAD);
       const pc1 = Math.min(cols, pCol + 8 + PAD);
-      const ph  = pr1 - pr0;
-      const pw  = pc1 - pc0;
+      const ph = pr1 - pr0, pw = pc1 - pc0;
 
-      // Extract cover patch
       const patch = new Float64Array(ph * pw);
-      for (let r = 0; r < ph; r++) {
-        for (let c = 0; c < pw; c++) {
+      for (let r = 0; r < ph; r++)
+        for (let c = 0; c < pw; c++)
           patch[r * pw + c] = img[(pr0 + r) * cols + (pc0 + c)];
-        }
-      }
-      const coverPatchSub = wavelet3Level(patch, ph, pw);
 
-      // For each DCT coefficient (zigzag index zi)
+      const cov = directionalResiduals(patch, ph, pw);
+      const covBands = [cov.LH, cov.HL, cov.HH];
+
       for (let zi = 0; zi < 64; zi++) {
-        // Map zigzag → natural (k=row, l=col within 8×8)
-        const nat = ZZ_TO_NAT_LOCAL[zi];
-        const k = nat >> 3;
-        const l = nat & 7;
+        const nat = ZZ_TO_NAT[zi];
+        if (nat === 0) { costs[bi][zi] = WET; continue; }
+
+        const k = nat >> 3, l = nat & 7;
         const q = quantTable[zi];
-
-        // Wet cost: if DC coefficient (k=l=0) skip (don't embed in DC)
-        if (k === 0 && l === 0) {
-          costs[bi][zi] = 1e8;
-          continue;
-        }
-
-        // Wet cost: if quantization step > 1, skip zero-only coefficient
-        // (approximation: skip if q > 1 — standard J-UNIWARD practice)
-        // We still compute cost for these; caller may mark as wet.
-
-        // Compute perturbation (q * B_kl) on the 8×8 block within the patch
         const basis = BASIS_CACHE[k * 8 + l];
+
         const perturbed = new Float64Array(patch);
-        const patchBlockR = pRow - pr0;
-        const patchBlockC = pCol - pc0;
-        for (let px = 0; px < 8; px++) {
-          for (let py = 0; py < 8; py++) {
-            perturbed[(patchBlockR + px) * pw + (patchBlockC + py)] += q * basis[px * 8 + py];
-          }
-        }
+        const br = pRow - pr0, bc = pCol - pc0;
+        for (let px = 0; px < 8; px++)
+          for (let py = 0; py < 8; py++)
+            perturbed[(br + px) * pw + (bc + py)] += q * basis[px * 8 + py];
 
-        const pertSub = wavelet3Level(perturbed, ph, pw);
-        const pertSubbands = [
-          pertSub.LH1, pertSub.HL1, pertSub.HH1,
-          pertSub.LH2, pertSub.HL2, pertSub.HH2,
-          pertSub.LH3, pertSub.HL3, pertSub.HH3,
-        ];
-        const coverPatchSubbands = [
-          coverPatchSub.LH1, coverPatchSub.HL1, coverPatchSub.HH1,
-          coverPatchSub.LH2, coverPatchSub.HL2, coverPatchSub.HH2,
-          coverPatchSub.LH3, coverPatchSub.HL3, coverPatchSub.HH3,
-        ];
+        const per = directionalResiduals(perturbed, ph, pw);
+        const perBands = [per.LH, per.HL, per.HH];
 
-        // Compute cost: Σ_n Σ_{r,c in patch} |ΔW_n| / (|W_n_cover_patch| + σ)
-        // Uses patch-local cover subbands in the denominator; for patches well
-        // within image boundaries these match the full-image subbands.
         let cost = 0;
-        for (let sn = 0; sn < 9; sn++) {
-          const csb = coverPatchSubbands[sn];
-          const psb = pertSubbands[sn];
-          for (let idx = 0; idx < csb.length; idx++) {
-            const delta = Math.abs(psb[idx] - csb[idx]);
-            cost += delta / (Math.abs(csb[idx]) + SIGMA);
+        for (let m = 0; m < 3; m++) {
+          const cb = covBands[m], pb = perBands[m];
+          for (let i = 0; i < cb.length; i++) {
+            cost += Math.abs(pb[i] - cb[i]) / (SIGMA + Math.abs(cb[i]));
           }
         }
-
         costs[bi][zi] = cost;
       }
     }
@@ -500,25 +468,21 @@ export async function computeCostMatrixSlow(
  * probeBlock — single-block "why is this cost cheap/expensive?" explainer.
  *
  * Perturbs ONE 8×8 block by a +1 quantization step in a chosen DCT mode, then
- * measures, subband by subband, how much that ripple disturbs the Daubechies-8
- * wavelet decomposition *relative to the cover magnitude already there*. This is
- * the literal J-UNIWARD definition (same as {@link computeCostMatrixSlow}),
+ * measures, subband by subband, how much that ripple disturbs the three
+ * first-level undecimated directional residuals *relative to the cover
+ * magnitude already there*. This is the literal J-UNIWARD definition (Eq. 3),
  * evaluated for a single block so it runs instantly on hover/click.
  *
  * The teaching payoff: a change dropped into busy texture (large |W_cover|) is
  * divided by a large denominator → small normalized disturbance → LOW cost. The
  * same change in a flat region (tiny |W_cover|) is divided by ~σ → huge cost.
  * The learner SEES the denominator, not just the verdict.
- *
- * Returns per-subband {deltaSum, coverMag, contribution} plus the total cost —
- * all computed, never faked.
  */
 export interface SubbandProbe {
-  name: string;        // 'LH1'…'HH3'
-  level: 1 | 2 | 3;
-  deltaSum: number;    // Σ |ΔW| in this subband (the raw ripple energy)
-  coverMag: number;    // Σ |W_cover| in this subband (the denominator magnitude)
-  contribution: number; // Σ |ΔW| / (|W_cover| + σ) — this subband's share of the cost
+  name: string;         // 'LH' | 'HL' | 'HH'
+  deltaSum: number;     // Σ |ΔW| in this subband (the raw ripple energy)
+  coverMag: number;     // Σ |W_cover| in this subband (the denominator magnitude)
+  contribution: number; // Σ |ΔW| / (σ + |W_cover|) — this subband's share of the cost
 }
 
 export interface BlockProbe {
@@ -527,12 +491,6 @@ export interface BlockProbe {
   q: number;           // quantization step applied (the size of the ±1 change)
   coeffNat: number;    // natural DCT index perturbed (row*8+col)
 }
-
-const PROBE_BAND_NAMES: [keyof WaveletSubbands, string, 1 | 2 | 3][] = [
-  ['LH1', 'LH1', 1], ['HL1', 'HL1', 1], ['HH1', 'HH1', 1],
-  ['LH2', 'LH2', 2], ['HL2', 'HL2', 2], ['HH2', 'HH2', 2],
-  ['LH3', 'LH3', 3], ['HL3', 'HL3', 3], ['HH3', 'HH3', 3],
-];
 
 export function probeBlock(
   lumaPixels: Float32Array,
@@ -548,7 +506,6 @@ export function probeBlock(
   const img = new Float64Array(lumaPixels.length);
   for (let i = 0; i < img.length; i++) img[i] = lumaPixels[i];
 
-  // Padded patch around the block (matches the slow reference's PAD).
   const PAD = 32;
   const pRow = bRow * 8, pCol = bCol * 8;
   const pr0 = Math.max(0, pRow - PAD);
@@ -562,7 +519,7 @@ export function probeBlock(
     for (let c = 0; c < pw; c++)
       patch[r * pw + c] = img[(pr0 + r) * cols + (pc0 + c)];
 
-  const nat = ZZ_TO_NAT_LOCAL[zigzagIndex];
+  const nat = ZZ_TO_NAT[zigzagIndex];
   const k = nat >> 3, l = nat & 7;
   const q = quantTable[zigzagIndex] || 1;
   const basis = BASIS_CACHE[k * 8 + l];
@@ -573,30 +530,31 @@ export function probeBlock(
     for (let py = 0; py < 8; py++)
       perturbed[(br + px) * pw + (bc + py)] += q * basis[px * 8 + py];
 
-  const coverSub = wavelet3Level(patch, ph, pw) as unknown as Record<string, Float64Array>;
-  const pertSub  = wavelet3Level(perturbed, ph, pw) as unknown as Record<string, Float64Array>;
+  const cov = directionalResiduals(patch, ph, pw);
+  const per = directionalResiduals(perturbed, ph, pw);
+  const covBands = [cov.LH, cov.HL, cov.HH];
+  const perBands = [per.LH, per.HL, per.HH];
 
   const subbands: SubbandProbe[] = [];
   let totalCost = 0;
-  for (const [key, name, level] of PROBE_BAND_NAMES) {
-    const cov = coverSub[key as string];
-    const per = pertSub[key as string];
+  for (let m = 0; m < 3; m++) {
+    const cb = covBands[m], pb = perBands[m];
     let deltaSum = 0, coverMag = 0, contribution = 0;
-    for (let i = 0; i < cov.length; i++) {
-      const d = Math.abs(per[i] - cov[i]);
+    for (let i = 0; i < cb.length; i++) {
+      const d = Math.abs(pb[i] - cb[i]);
       deltaSum += d;
-      coverMag += Math.abs(cov[i]);
-      contribution += d / (Math.abs(cov[i]) + SIGMA);
+      coverMag += Math.abs(cb[i]);
+      contribution += d / (SIGMA + Math.abs(cb[i]));
     }
-    subbands.push({ name, level, deltaSum, coverMag, contribution });
+    subbands.push({ name: BANK[m][2], deltaSum, coverMag, contribution });
     totalCost += contribution;
   }
 
   return { subbands, totalCost, q, coeffNat: nat };
 }
 
-// Local copy of ZZ_TO_NAT for this module (avoid cross-module dep on codec internals)
-const ZZ_TO_NAT_LOCAL = new Uint8Array([
+// Local zigzag ↔ natural maps (avoid a cross-module dep on codec internals)
+const ZZ_TO_NAT = new Uint8Array([
    0,  1,  8, 16,  9,  2,  3, 10,
   17, 24, 32, 25, 18, 11,  4,  5,
   12, 19, 26, 33, 40, 48, 41, 34,
@@ -606,6 +564,9 @@ const ZZ_TO_NAT_LOCAL = new Uint8Array([
   58, 59, 52, 45, 38, 31, 39, 46,
   53, 60, 61, 54, 47, 55, 62, 63,
 ]);
+
+const NAT_TO_ZZ = new Uint8Array(64);
+for (let zi = 0; zi < 64; zi++) NAT_TO_ZZ[ZZ_TO_NAT[zi]] = zi;
 
 /**
  * Render cost heatmap onto a canvas for Phase 2 validation.
@@ -638,7 +599,7 @@ export function renderCostHeatmap(
       const c = costs[bi][zi];
       if (isFinite(c) && c < 1e7) { sum += c; cnt++; }
     }
-    avgCosts[bi] = cnt > 0 ? sum / cnt : 1e8;
+    avgCosts[bi] = cnt > 0 ? sum / cnt : WET;
   }
 
   const fin = avgCosts.filter(v => isFinite(v) && v < 1e7);

@@ -51,9 +51,9 @@ export const GLOSSARY: Record<string, GlossEntry> = {
   wavelet: {
     term: 'wavelet',
     gloss:
-      'A wavelet transform re-expresses the image as detail at several scales and directions ' +
-      '(horizontal / vertical / diagonal). J-UNIWARD uses a Daubechies-8 wavelet to measure how ' +
-      'much a change disturbs texture the image model can see.',
+      'A wavelet transform re-expresses the image as directional detail — horizontal, vertical ' +
+      'and diagonal. J-UNIWARD uses the three first-level undecimated Daubechies-8 detail ' +
+      'subbands to measure how much a change disturbs texture the image model can see.',
   },
   stc: {
     term: 'STC',

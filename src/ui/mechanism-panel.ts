@@ -7,10 +7,10 @@
  *
  * Click (or arrow-key) a single 8×8 block on the cover image. We perturb JUST
  * that block by a +1 quantization step in the first AC DCT mode and, using the
- * real Daubechies-8 decomposition (src/steg/WaveletCost.ts → probeBlock, the
+ * real undecimated Daubechies-8 filter bank (src/steg/WaveletCost.ts → probeBlock, the
  * literal J-UNIWARD definition — no faked numbers), show:
  *
- *   • the ripple |ΔW| each of the 9 wavelet detail subbands feels,
+ *   • the ripple |ΔW| each of the three directional subbands feels,
  *   • the cover magnitude |W_cover| already present there (the DENOMINATOR),
  *   • and the resulting normalized cost contribution per subband.
  *
@@ -53,7 +53,7 @@ function ensureMount(): HTMLElement | null {
     <p class="text-muted text-xs mechanism-intro">
       Click a spot on the cover image (or focus it and press an arrow key) to nudge that one
       8×8 block by a +1 <span data-term="dct">DCT</span> step and watch the ripple hit the
-      nine <span data-term="wavelet">wavelet</span> detail subbands. The
+      three directional <span data-term="wavelet">wavelet</span> subbands. The
       <span data-term="cost">cost</span> is the ripple divided by the texture already there —
       so busy blocks come out cheap.
     </p>

@@ -4,9 +4,9 @@
 
 *An interactive research lab that teaches why adaptive steganography works.*
 
-Browser-native implementation of **J-UNIWARD** (JPEG Universal Wavelet Relative Distortion) — the academic reference for adaptive JPEG steganography. Implements the full pipeline from the 2013 Holub & Fridrich paper, with one deliberate deviation in the cost function noted below:
+Browser-native implementation of **J-UNIWARD** (JPEG Universal Wavelet Relative Distortion) — the academic reference for adaptive JPEG steganography. Implements the pipeline from Holub, Fridrich & Denemark, *Universal distortion function for steganography in an arbitrary domain* (EURASIP Journal on Information Security 2014:1; conference version ACM IH&MMSec 2013):
 
-- **Cost function:** Daubechies-8 three-level wavelet decomposition assigns a distortion cost to each DCT coefficient. *Deviation:* published J-UNIWARD sums relative changes over the **three** highest-frequency **undecimated** subbands of the **first** decomposition level (with σ = 2⁻⁶); this demo sums over **nine** subbands of a three-level **decimated** decomposition (with a much smaller σ). Same relative-change idea and same Daubechies-8 basis, but the numbers are not the reference implementation's — changes in textured regions are "cheaper." Computed in well under a second via precomputed per-mode wavelet footprints (a ~1000× speedup over the literal definition, validated against it in the test suite).
+- **Cost function:** the published UNIWARD distortion, as defined. The cost of changing a DCT coefficient is the sum of *relative* changes of every wavelet coefficient in the **three first-level undecimated** directional subbands (LH, HL, HH) — built from the Daubechies-8 (`db8`, 16-tap) low-pass/high-pass pair as the outer products K⁽¹⁾ = h·gᵀ, K⁽²⁾ = g·hᵀ, K⁽³⁾ = g·gᵀ — with the stabilizing constant **σ = 2⁻⁶** the paper selects for J-UNIWARD. Nothing is decimated and there is no second or third decomposition level. It is evaluated in closed form: because the undecimated transform is shift-invariant and both the filter bank and the DCT basis are outer products, the ripple factorises along each axis. So it runs in well under a second *and* is the literal definition rather than an approximation of it — the test suite pins it against a brute-force implementation that perturbs actual pixels and re-runs the transform, and the two agree to ~1e-12 relative, at the image boundary as well as inside.
 - **Embedding:** Full Syndrome-Trellis Code (STC, h=12, 4096 states) finds the minimum-distortion modification via Viterbi search (Filler, Judas & Fridrich 2011). The payload is spread across the whole image by a keyed permutation over the full coefficient pool, so changes land in the globally cheapest — most textured — coefficients.
 - **Key schedule:** PBKDF2-SHA-256 (600k iterations) → HKDF domain separation → AES-CTR hat matrix + Fisher-Yates permutation. HMAC-SHA-256 integrity tag; a real embed→download→upload→extract round-trip recovers the message and verifies the tag.
 - **Steganalysis:** Honest three-way comparison (LSB vs F5 vs J-UNIWARD) at the same payload. LSB's spatial edits are re-projected into the quantized DCT domain via a real forward DCT, then every method's changes are ranked against the cost map by *where they land* — the distortion that actually predicts detectability — plus a DCT histogram view (with the cover distribution overlaid so the F5 shrinkage tell is visible).
@@ -18,7 +18,7 @@ Everything runs locally in your browser. No backends, no simulated math, no rigg
 Built for both a newcomer meeting adaptive steganography for the first time and a cryptographer after the subtle details:
 
 1. **Plain-English glossary layer** — load-bearing jargon (`bpnzac`, `DCT`, `wavelet`, `AC`/`DC`, `STC`/`Viterbi`, `shrinkage`) is gated behind a one-line hover/focus gloss wherever it first appears, so the raw acronym never lands cold.
-2. **"Inside the cost" block probe** — click any 8×8 block on the cover image to nudge it by a +1 DCT step and watch the ripple hit all nine wavelet detail subbands, with the *cover-magnitude denominator* shown next to each — so you *see* why busy texture yields low normalized cost. Computed live from the same Daubechies-8 transform the embedder uses; no faked numbers.
+2. **"Inside the cost" block probe** — click any 8×8 block on the cover image to nudge it by a +1 DCT step and watch the ripple hit the three undecimated wavelet detail subbands, with the *cover-magnitude denominator* shown next to each — so you *see* why busy texture yields low normalized cost. Computed live from the same Daubechies-8 transform the embedder uses; no faked numbers.
 3. **F5 shrinkage annotation** — the DCT histogram overlays the cover distribution and rings/arrows the suppressed ±1 buckets, pointing directly at the tell the demo names.
 4. **STC / Viterbi schematic** — a stepped walkthrough of the keyed permutation spreading the payload, then the trellis choosing the globally cheapest minimum-distortion flip-set over the cost map.
 5. **Placement-proxy framing** — the change-exposure bars are labelled *placement proxy — not a detector* at the point of use, each paired with a one-line "what a real detector would see" note, so a low bar is never misread as "provably safe."
@@ -84,7 +84,7 @@ Click **▶ Quick Demo** on the live site — it loads a sample image, prefills 
 | Embedding summary | Payload size, actual rate, carriers used, distortion, metadata status |
 | Visual comparison | Side-by-side cover/stego + 10× amplified difference map |
 | Live steganalysis | Change-exposure bars (labelled *placement proxy — not a detector*), "where changes landed" map over the cost terrain, DCT histograms, detectability labels |
-| Cost-mechanism probe | Click any block to see the ±1 wavelet ripple across 9 subbands and the cover-magnitude denominator that makes texture cheap |
+| Cost-mechanism probe | Click any block to see the ±1 wavelet ripple across the three directional subbands and the cover-magnitude denominator that makes texture cheap |
 | Jargon glossary | Hover/focus one-line plain-English glosses for bpnzac, DCT, wavelet, AC/DC, STC/Viterbi, shrinkage |
 | STC/Viterbi schematic | Stepped walkthrough of keyed spreading → candidate flip-sets → minimum-distortion choice |
 | F5 shrinkage callout | Cover histogram overlaid with the ±1 shrinkage buckets ringed and arrowed |
@@ -114,7 +114,7 @@ src/
 ├── steg/
 │   ├── Embedder.ts      # J-UNIWARD embed
 │   ├── Extractor.ts     # STC extract
-│   └── WaveletCost.ts   # Daubechies-8 cost function
+│   └── WaveletCost.ts   # J-UNIWARD (UNIWARD) wavelet cost function
 ├── analysis/
 │   └── StegAnalysis.ts  # Chi-square, histograms, comparison
 ├── stc.ts               # STC Viterbi embed/extract

@@ -465,9 +465,10 @@
             <div class="info-card">
               <h3 id="methodology-heading">Methodology</h3>
               <ul>
-                <li><strong>Cost function:</strong> Daubechies-8 three-level
-                  <span data-term="wavelet">wavelet</span> decomposition
-                  measures how much a ±1 <span data-term="dct">DCT</span> change disturbs the image in 9 detail subbands.</li>
+                <li><strong>Cost function:</strong> the published UNIWARD distortion &mdash; a ±1
+                  <span data-term="dct">DCT</span> change is scored by its <em>relative</em> disturbance
+                  across the three first-level <strong>undecimated</strong> Daubechies-8
+                  <span data-term="wavelet">wavelet</span> subbands (LH, HL, HH), with &sigma; = 2<sup>&minus;6</sup>.</li>
                 <li><strong>Embedding:</strong> <span data-term="stc">Syndrome-Trellis Codes</span> (h=12, 4096 states) find the
                   minimum-distortion modification via <span data-term="viterbi">Viterbi</span> search.</li>
                 <li><strong>Analysis:</strong> each method's changes are re-projected into the quantized

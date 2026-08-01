@@ -81,13 +81,39 @@ async function main() {
     ok('flat blocks cost far more than textured blocks', flat > tex * 5, `flatMed=${flat.toExponential(1)} texMed=${tex.toExponential(1)}`);
   }
 
-  // ── 3. Fast cost map matches the reference implementation (opt-in: SLOW=1) ──
-  if (process.env['SLOW']) {
-    console.log('\nfast vs reference cost correlation');
-    const dec = loadSample('sample-grass.jpg');
-    const fast = await computeCostMatrix(dec.lumaPixels, dec.quantTable, dec.lumaBlocksWide, dec.lumaBlocksHigh);
-    const slow = await computeCostMatrixSlow(dec.lumaPixels, dec.quantTable, dec.lumaBlocksWide, dec.lumaBlocksHigh);
-    ok('correlation > 0.95', correlate(fast, slow) > 0.95, correlate(fast, slow).toFixed(4));
+  // ── 3. Fast cost map IS the literal definition ──
+  //
+  // computeCostMatrix evaluates UNIWARD Eq. 3 in closed form; computeCostMatrixSlow
+  // evaluates it by brute force (perturb pixels by q·B_kl, re-run the undecimated
+  // transform, sum |ΔW|/(σ+|W_cover|)). Because the transform is undecimated it is
+  // shift-invariant, and because both the filter bank and the DCT basis are outer
+  // products the ripple separates per axis — so the two are equal to floating
+  // point, at the image boundary as well as inside. Anything worse than ~1e-9
+  // means the closed form has drifted from the definition.
+  {
+    console.log('\nclosed-form cost == literal definition');
+    // Deterministic 12×12-block image: flat left half, broadband texture right.
+    const BW = 12, BH = 12, W = BW * 8, H = BH * 8;
+    const luma = new Float32Array(W * H);
+    let seed = 987654321;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      luma[y * W + x] = x < W / 2 ? 128 + (rnd() - 0.5) * 2 : 128 + (rnd() - 0.5) * 120;
+    const quant = new Uint16Array(64).fill(8);
+
+    const fast = await computeCostMatrix(luma, quant, BW, BH);
+    const slow = await computeCostMatrixSlow(luma, quant, BW, BH);
+
+    let maxRel = 0, worst = '';
+    for (let bi = 0; bi < fast.length; bi++) for (let zi = 1; zi < 64; zi++) {
+      const f = fast[bi][zi], s = slow[bi][zi];
+      const rel = Math.abs(f - s) / Math.max(Math.abs(s), 1e-12);
+      if (rel > maxRel) { maxRel = rel; worst = `block ${bi} zz ${zi}: ${f} vs ${s}`; }
+    }
+    ok('closed form matches brute force to 1e-9 (all blocks, incl. edges)',
+      maxRel < 1e-9, `max relative error ${maxRel.toExponential(2)} — ${worst}`);
+    ok('costs correlate perfectly with the reference', correlate(fast, slow) > 0.999999,
+      correlate(fast, slow).toFixed(9));
   }
 
   // ── 4. Embed → extract roundtrip (STC + KDF + HMAC) ──
