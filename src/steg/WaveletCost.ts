@@ -1,9 +1,18 @@
 /**
  * WaveletCost — Daubechies-8 three-level wavelet decomposition for J-UNIWARD
  *
- * Implements the cost function from:
- *   Holub & Fridrich, "Designing Steganographic Distortion Using Directional
- *   Filters," IEEE WIFS 2012 (IEEE, 2013).
+ * Implements a variant of the UNIWARD cost function from:
+ *   Holub & Fridrich, "Digital Image Steganography Using Universal Distortion,"
+ *   ACM IH&MMSec 2013; and Holub, Fridrich & Denemark, "Universal distortion
+ *   function for steganography in an arbitrary domain," EURASIP Journal on
+ *   Information Security 2014:1.
+ *   (The WIFS 2012 paper "Designing Steganographic Distortion Using Directional
+ *   Filters" is WOW, a different — reciprocal-Hölder — cost function.)
+ *
+ * DEVIATION FROM THE REFERENCE: UNIWARD sums over the THREE highest-frequency
+ * UNDECIMATED subbands of the FIRST decomposition level. This implementation
+ * instead sums over 9 subbands of a 3-level DECIMATED decomposition, which is a
+ * teaching variant, not the published J-UNIWARD cost.
  *
  * The cost ρ(i,j) for modifying DCT coefficient (i,j) by ±1 is:
  *
@@ -170,7 +179,11 @@ for (let k = 0; k < 8; k++)
 
 // ─── J-UNIWARD cost matrix ────────────────────────────────────────────────────
 
-const SIGMA = 1e-6; // stabilization constant (Holub & Fridrich 2012)
+// Stabilizing constant σ from the UNIWARD distortion (Holub & Fridrich, IH&MMSec
+// 2013). NOTE: the reference J-UNIWARD uses σ = 2^-6; this demo uses a much
+// smaller σ because its wavelet decomposition differs from the reference (see the
+// header comment), so the two values are not directly comparable.
+const SIGMA = 1e-6;
 
 // ─── Fast cost via precomputed basis wavelet "footprints" ────────────────────
 //
