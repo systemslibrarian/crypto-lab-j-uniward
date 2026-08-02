@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4220;
+// Default port is fixed so CI stays deterministic; E2E_PORT lets a local run
+// step around a port another lab's preview server already holds.
+const PORT = Number(process.env.E2E_PORT ?? 4220);
 const BASE = '/crypto-lab-j-uniward/';
 
 export default defineConfig({
