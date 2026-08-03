@@ -77,14 +77,24 @@ function readComSideband(buf: ArrayBuffer): { salt: Uint8Array; rate: number; ms
 
 let uploadedDecoded: JpegDecoded | null = null;
 let uploadedBuf: ArrayBuffer | null = null;
+let uploadFailed = false;
 
 extractFileInput?.addEventListener('change', async () => {
   const file = extractFileInput.files?.[0];
   if (!file) return;
+  // Drop whatever the previous upload left behind first. Otherwise a file that
+  // fails to decode leaves the *old* image in `uploadedDecoded` while the new
+  // file's bytes sit in `uploadedBuf`, and Extract then runs the new file's
+  // sideband parameters against the previous file's coefficients.
+  uploadedDecoded = null;
+  uploadedBuf = null;
+  uploadFailed = false;
   try {
-    uploadedBuf = await file.arrayBuffer();
-    uploadedDecoded = decode(uploadedBuf);
+    const buf = await file.arrayBuffer();
+    uploadedDecoded = decode(buf);
+    uploadedBuf = buf;
   } catch (err) {
+    uploadFailed = true;
     showAlert(extractOutput, `Failed to load stego JPEG: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
 });
@@ -100,27 +110,29 @@ extractBtn.addEventListener('click', async () => {
   let extractRate = 0;
   let extractMsgLen = 0;
 
-  // Prefer active embed result, then uploaded file
-  if (state.stegoDecoded && state.lastEmbedSalt) {
+  // An explicitly chosen file wins over the in-memory embed result: picking a
+  // file is a statement of intent, and silently extracting the last embed
+  // instead would answer a question the user did not ask. Each source carries
+  // its *own* sideband parameters — they are never mixed across runs.
+  if (uploadedDecoded && uploadedBuf) {
+    stegoD = uploadedDecoded;
+    const sb = readComSideband(uploadedBuf);
+    if (sb) { extractSalt = sb.salt; extractRate = sb.rate; extractMsgLen = sb.msgLen; }
+  } else if (state.stegoDecoded && state.lastEmbedSalt) {
     stegoD        = state.stegoDecoded;
     extractSalt   = state.lastEmbedSalt;
     extractRate   = state.lastEmbedRate;
     extractMsgLen = state.lastEmbedMsgLen;
-  } else if (uploadedDecoded) {
-    stegoD = uploadedDecoded;
-    if (uploadedBuf) {
-      const sb = readComSideband(uploadedBuf);
-      if (sb) { extractSalt = sb.salt; extractRate = sb.rate; extractMsgLen = sb.msgLen; }
-    }
-  }
-
-  if (!extractSalt && state.stegoBuffer) {
-    const sb = readComSideband(state.stegoBuffer);
-    if (sb) { extractSalt = sb.salt; extractRate = sb.rate; extractMsgLen = sb.msgLen; }
   }
 
   if (!stegoD) {
-    showAlert(extractOutput, 'No stego JPEG loaded. Embed first or upload a stego JPEG.', 'error');
+    showAlert(
+      extractOutput,
+      uploadFailed
+        ? 'That file could not be decoded as a JPEG, so there is nothing to extract from. Upload a valid stego JPEG.'
+        : 'No stego JPEG loaded. Embed first or upload a stego JPEG.',
+      'error',
+    );
     return;
   }
   if (!extractSalt || extractRate <= 0 || extractMsgLen <= 0) {
@@ -142,7 +154,10 @@ extractBtn.addEventListener('click', async () => {
       'success',
     );
   } catch (err) {
-    showAlert(extractOutput, `Extraction failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    // Extractor errors already carry the "Extraction failed:" prefix; don't
+    // stutter it into the banner a second time.
+    const cause = (err instanceof Error ? err.message : String(err)).replace(/^Extraction failed:\s*/, '');
+    showAlert(extractOutput, `Extraction failed: ${cause}`, 'error');
   } finally {
     extractBtn.disabled = false;
     extractBtn.textContent = '🔓 Extract';

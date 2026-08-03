@@ -33,6 +33,9 @@ const copyMsgBtn    = document.getElementById('copy-extracted') as HTMLButtonEle
 const analysisSlider = document.getElementById('analysis-payload-slider') as HTMLInputElement;
 const analysisDisplay= document.getElementById('analysis-payload-display')!;
 
+/** The button's shipped label, captured before any spinner overwrites it. */
+const EMBED_BTN_LABEL = embedBtn.textContent ?? '🔒 Embed with J-UNIWARD';
+
 const DEMO_RATES = ['0.10', '0.20', '0.40'] as const;
 const DEMO_MESSAGES = [
   'J-UNIWARD demo.',
@@ -82,12 +85,54 @@ function updateCharCount(): void {
   }
 }
 
-msgInput.addEventListener('input', updateCharCount);
+// ─── Stale-verdict retirement ────────────────────────────────────────────────
+
+/**
+ * A finished embed describes exactly one (message, key, rate) triple. The moment
+ * any of those changes, every panel derived from that run — the "✓ Embedded"
+ * status, the Embedding Summary, the cover/stego comparison, the steganalysis
+ * bars — describes a run the boxes on screen no longer produce. Worse, the
+ * Extract tab prefers `state.stegoDecoded`, so it kept recovering the *old*
+ * message while the textarea showed a new one.
+ *
+ * So retire the whole run: clear the stego artifacts and repaint the panels with
+ * an explicit "inputs changed" note instead of a stale success.
+ */
+function retireStaleEmbed(): void {
+  if (!state.stegoDecoded && !state.stegoBuffer && !state.analysisResult) return;
+
+  resetEmbedState();
+  summaryCard.classList.add('hidden');
+  summaryCard.innerHTML = '';
+  postEmbed.classList.add('hidden');
+
+  showAlert(
+    embedStatus,
+    'Inputs changed since the last embed — the previous result described a different message, key, or rate. Press Embed to recompute.',
+    'info',
+  );
+
+  // The extract output may be showing a message recovered from the run just retired.
+  const extractOutput = document.getElementById('extract-output');
+  if (extractOutput) {
+    extractOutput.classList.add('hidden');
+    extractOutput.innerHTML = '';
+  }
+
+  updateAnalysisPanel(state.activeMethod);
+}
+
+msgInput.addEventListener('input', () => {
+  retireStaleEmbed();
+  updateCharCount();
+});
+keyInput.addEventListener('input', retireStaleEmbed);
 
 // ─── Rate slider ─────────────────────────────────────────────────────────────
 
 rateSlider.addEventListener('input', () => {
   const v = parseFloat(rateSlider.value);
+  retireStaleEmbed();
   rateDisplay.textContent = v.toFixed(2) + ' bpnzac';
   rateWarning.classList.toggle('hidden', v <= 0.3);
 
@@ -117,6 +162,23 @@ embedBtn.addEventListener('click', async () => {
 
   if (!message) { showAlert(embedStatus, 'Message cannot be empty.', 'error'); return; }
   if (!key)     { showAlert(embedStatus, 'Key cannot be empty.', 'error'); return; }
+
+  // The capacity banner above the button is an *error* — honour it. The STC pool
+  // is every AC coefficient, not just the non-zero ones, so an over-capacity
+  // message would still embed; it would just blow past the requested bpnzac rate
+  // (the whole parameter this lab is about) while the banner said it was
+  // impossible. Two surfaces, one run: refuse, and name the budget.
+  const msgBytesIn = new TextEncoder().encode(message).length;
+  const capacity   = capacityBytes(countNZAC(state.decoded.dctCoeffs), rate) - 20;
+  if (msgBytesIn > capacity) {
+    showAlert(
+      embedStatus,
+      `Message is ${msgBytesIn} bytes but capacity at ${rate.toFixed(2)} bpnzac is ${capacity} bytes ` +
+      '(after the 4-byte header and 16-byte MAC). Shorten the message or raise the embedding rate.',
+      'error',
+    );
+    return;
+  }
 
   try {
     embedBtn.disabled = true;
@@ -242,7 +304,9 @@ embedBtn.addEventListener('click', async () => {
     showAlert(embedStatus, `Embedding failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
   } finally {
     embedBtn.disabled = false;
-    embedBtn.textContent = '🔒 Embed';
+    // Restore the label the button shipped with — hard-coding a shorter one here
+    // silently renamed the control after its first use.
+    embedBtn.textContent = EMBED_BTN_LABEL;
   }
 });
 

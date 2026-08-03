@@ -23,6 +23,8 @@ const heatmapRow    = document.getElementById('heatmap-toggle-row')!;
 const heatmapCb     = document.getElementById('heatmap-checkbox') as HTMLInputElement;
 const embedBtn      = document.getElementById('embed-btn') as HTMLButtonElement;
 const postEmbed     = document.getElementById('post-embed')!;
+const embedSummary  = document.getElementById('embed-summary')!;
+const embedStatus   = document.getElementById('embed-status')!;
 const suitability   = document.getElementById('image-suitability')!;
 
 let isLoadingImage = false;
@@ -84,7 +86,16 @@ export async function loadImage(file: File): Promise<void> {
 
     drawImageOnCanvas(coverCanvas, state.decoded.pixels, state.decoded.width, state.decoded.height);
     heatmapCanvas.classList.add('hidden');
+
+    // Retire everything the *previous* cover's embed produced. The comparison
+    // strip used to be the only panel cleared here, leaving the Embedding
+    // Summary — payload, carriers, NZAC — quoting an image that is no longer on
+    // screen, and the "✓ Embedded" banner still sitting under the button.
     postEmbed.classList.add('hidden');
+    embedSummary.classList.add('hidden');
+    embedSummary.innerHTML = '';
+    embedStatus.classList.add('hidden');
+    embedStatus.innerHTML = '';
 
     const nzac = countNZAC(state.decoded.dctCoeffs);
 
