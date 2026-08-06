@@ -49,7 +49,7 @@
   --bg-tertiary:     #eaeef2;
   --bg-panel:        #f6f8fa;
   --text-primary:    #1f2328;
-  --text-secondary:  #57606a;
+  --text-secondary:  #424a53;
   --text-accent:     #0550ae;
   --border-color:    #d0d7de;
   --border-subtle:   #eaeef2;
@@ -70,7 +70,7 @@
   --input-border:    #6b7280;
   --input-focus:     #0969da;
   --tag-bg:          #ddf4ff;
-  --tag-text:        #0550ae;
+  --tag-text:        #033666;
   --tab-active-bg:   #eaeef2;
   --shadow:          0 8px 24px rgba(140, 149, 159, 0.2);
   color-scheme: light;
