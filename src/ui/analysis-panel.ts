@@ -84,16 +84,16 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
   ];
 
   // ── Exposure bars: mean cost-percentile of each method's changes ──
+  // The "what is this?" trigger used to be a bare `<span tabindex="0"
+  // aria-label="…">ⓘ</span>`. `aria-label` is PROHIBITED on an element with no
+  // role, so it was discarded: the icon reached a screen reader as the single
+  // character "ⓘ" and nothing else. It now goes through the same glossary
+  // machinery as every other term on the page, which gives it a real role, a
+  // real name, aria-expanded, and a keyboard toggle.
   let html = `<div class="analysis-bars">
     <h3 class="section-label">Change exposure
       <span class="proxy-tag" title="This bar measures placement, not detection">placement proxy — not a detector</span>
-      <span class="tooltip-trigger" tabindex="0" aria-label="What is change exposure?">ⓘ
-        <span class="tooltip-content">Each change is ranked against the J-UNIWARD cost map.
-        Exposure is the average cost-percentile of a method's changes: 0% means every change
-        landed in the most textured, hardest-to-model coefficients; 100% means the smoothest,
-        most conspicuous ones. Lower is stealthier — this is the distortion J-UNIWARD minimises.
-        It predicts resistance but does not prove undetectability; a lower bar is not "provably safe".</span>
-      </span>
+      <span class="gloss-inline" data-term="exposure">what is this?</span>
     </h3>`;
 
   for (const m of methods) {

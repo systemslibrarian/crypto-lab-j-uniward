@@ -1,75 +1,37 @@
-import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { test } from '@playwright/test';
+import { boot, driveAllStates, NARROW } from './gate';
 
 /**
- * WCAG regression gate. Scans the full page with every collapsible / tab pane
- * revealed, in both the dark (default) and light themes. Modeled on the ascon
- * lab gate. This page has no <details>; instead it uses class-toggled tab
- * panes (.tab-pane.active) and pill tab groups — reveal them all so hidden
- * content is measured too.
+ * WCAG A/AA regression gate.
+ *
+ * The lab is driven along the chain it teaches: both skip links focused, the
+ * glossary bubble opened, all three STC schematic steps drawn, Extract refused
+ * twice before anything exists to extract, a textured sample decoded and its
+ * cost map built, the heatmap overlaid, two blocks probed by keyboard, the
+ * capacity banner tripped into its warning and error forms, the embed refused
+ * for being over budget, the aggressive preset's rate warning shown, a real
+ * message embedded and the three-way steganalysis comparison rendered, each of
+ * the three method panes opened, the message recovered and then failed against
+ * a wrong key, the previous verdict retired as stale, the session reset, a
+ * deliberately smooth second sample loaded for its "Poor carrier" badge, and
+ * the onboarding card dismissed. Every one of those states is scanned, in both
+ * themes, at desktop and phone width.
+ *
+ * See `gate.ts` for why nothing is injected into the page, why each scan
+ * asserts its content first, and why `violations` is not the whole oracle.
  */
 
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
-
-async function revealAll(page: Page): Promise<void> {
-  // Neutralize animations/transitions/opacity so nothing is mid-fade when axe
-  // measures contrast.
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.addStyleTag({
-    content: `*, *::before, *::after {
-      opacity: 1 !important;
-    }`,
+for (const theme of ['dark', 'light'] as const) {
+  test(`no WCAG A/AA violations in ${theme} theme`, async ({ page }) => {
+    test.setTimeout(900_000);
+    await boot(page, theme);
+    await driveAllStates(page, theme);
   });
-  await page.evaluate(() => {
-    // Open every native <details> (none today, but future-proof).
-    for (const details of Array.from(document.querySelectorAll('details'))) {
-      (details as HTMLDetailsElement).open = true;
-    }
-    // Reveal [hidden] and inline display:none content.
-    for (const el of Array.from(document.querySelectorAll('[hidden]'))) {
-      el.removeAttribute('hidden');
-    }
-    for (const el of Array.from(
-      document.querySelectorAll<HTMLElement>('[style*="display: none"], [style*="display:none"]'),
-    )) {
-      el.style.display = '';
-    }
-    // Reveal every class-toggled tab pane so the hidden Extract pane is scanned.
-    for (const pane of Array.from(document.querySelectorAll<HTMLElement>('.tab-pane'))) {
-      pane.classList.add('active');
-    }
-    // Reveal utility-hidden regions (progress bars, warnings, post-embed, etc.)
-    // so their text/borders are contrast-checked.
-    for (const el of Array.from(document.querySelectorAll('.hidden'))) {
-      el.classList.remove('hidden');
-    }
+
+  test(`no WCAG A/AA violations in ${theme} theme at 380px`, async ({ page }) => {
+    test.setTimeout(900_000);
+    await page.setViewportSize(NARROW);
+    await boot(page, theme);
+    await driveAllStates(page, `${theme} @380px`);
   });
 }
-
-async function scan(page: Page): Promise<void> {
-  const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
-  const summary = results.violations.map((v) => ({
-    id: v.id,
-    impact: v.impact,
-    help: v.help,
-    nodes: v.nodes.map((n) => n.target.join(' ')).slice(0, 5),
-  }));
-  expect(summary).toEqual([]);
-}
-
-test('no WCAG A/AA violations in dark theme', async ({ page }) => {
-  await page.goto('.');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('h1')).toBeVisible();
-  await revealAll(page);
-  await scan(page);
-});
-
-test('no WCAG A/AA violations in light theme', async ({ page }) => {
-  await page.goto('.');
-  await page.locator('#cl-theme-toggle').click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.locator('h1')).toBeVisible();
-  await revealAll(page);
-  await scan(page);
-});

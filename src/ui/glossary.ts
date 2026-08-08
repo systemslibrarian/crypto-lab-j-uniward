@@ -82,7 +82,52 @@ export const GLOSSARY: Record<string, GlossEntry> = {
       'busy texture; high cost = it would stand out in a smooth region. J-UNIWARD spends its ' +
       'payload where cost is lowest.',
   },
+  exposure: {
+    term: 'change exposure',
+    gloss:
+      'The average cost-percentile of a method’s changes. 0% means every change landed in the ' +
+      'most textured, hardest-to-model coefficients; 100% means the smoothest, most conspicuous ' +
+      'ones. Lower is stealthier — it is the distortion J-UNIWARD minimises. It predicts ' +
+      'resistance; it does not prove undetectability, so a lower bar is not "provably safe".',
+  },
 };
+
+/**
+ * Keep an opened bubble inside the viewport.
+ *
+ * The bubble is positioned from its host's left edge and is up to 300px wide,
+ * so a host sitting well into a panel would place it off the right of the page.
+ * That used to be invisible, because `.panel`/`.panel-body` clipped it — which
+ * is exactly the bug: a third of the gloss was silently cut off rather than
+ * merely mispositioned. With those clips removed the overflow becomes real, so
+ * the offset is measured against the viewport and clamped on every reveal.
+ *
+ * Width is set here too, from the same expression the stylesheet declares, so
+ * there is one number deciding both the box and the clamp.
+ */
+function placeBubble(host: HTMLElement, bubble: HTMLElement): void {
+  const MARGIN = 8;
+  const width = Math.min(300, window.innerWidth - 2 * MARGIN);
+  bubble.style.width = `${width}px`;
+  const hostLeft = host.getBoundingClientRect().left;
+  // Clamp the bubble's viewport-left into [MARGIN, innerWidth - MARGIN - width],
+  // then express the result as an offset from the host, which is what `left`
+  // means for an absolutely positioned child of a `position: relative` host.
+  const rightMost = Math.max(MARGIN, window.innerWidth - MARGIN - width);
+  const placed = Math.min(Math.max(hostLeft, MARGIN), rightMost);
+  bubble.style.left = `${placed - hostLeft}px`;
+}
+
+/**
+ * Every wired host, so a viewport change can re-place all of them at once.
+ *
+ * One shared listener rather than one per host: this page wires a fresh set of
+ * `data-term` spans every time the steganalysis panel re-renders.
+ */
+const wired: { host: HTMLElement; bubble: HTMLElement }[] = [];
+window.addEventListener('resize', () => {
+  for (const w of wired) placeBubble(w.host, w.bubble);
+});
 
 /**
  * Turn every element carrying `data-term="key"` into an accessible tooltip.
@@ -113,12 +158,29 @@ export function wireGlossary(root: ParentNode = document): void {
     host.appendChild(bubble);
     host.setAttribute('aria-describedby', bubbleId);
 
+    // Hover and focus reveal the bubble from CSS alone, so the placement has to
+    // hang off the same two events rather than off the toggle.
+    //
+    // Twice, immediately and again on the next frame: layout is not always
+    // final when the event fires — a font or a late-decoded image can still
+    // move the host — and a bubble placed from a position the host has since
+    // left lands outside the viewport. That produced exactly one intermittent
+    // failure of the reflow gate before the second pass was added.
+    const place = (): void => {
+      placeBubble(host, bubble);
+      requestAnimationFrame(() => placeBubble(host, bubble));
+    };
+    wired.push({ host, bubble });
+    host.addEventListener('mouseenter', place);
+    host.addEventListener('focus', place);
+
     // Keyboard: Enter/Space toggles (hover handled in CSS); Escape closes.
     host.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         const open = host.classList.toggle('gloss-open');
         host.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) place();
       } else if (e.key === 'Escape') {
         host.classList.remove('gloss-open');
         host.setAttribute('aria-expanded', 'false');

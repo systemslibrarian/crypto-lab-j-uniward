@@ -44,7 +44,13 @@ function ensureMount(): HTMLElement | null {
   const anchor = document.getElementById('heatmap-toggle-row');
   if (!anchor || !anchor.parentElement) return null;
 
-  const section = document.createElement('div');
+  // A <section>, not a <div>: `aria-labelledby` is prohibited on an element
+  // with no role, so on a plain div the "Inside the cost: probe a block"
+  // heading never reached the accessibility tree as this panel's name — the
+  // attribute was parsed and discarded. A <section> with an accessible name is
+  // a region, which is exactly what this is, and matches the three panels it
+  // sits inside.
+  const section = document.createElement('section');
   section.id = 'mechanism-panel';
   section.className = 'mechanism-panel hidden';
   section.setAttribute('aria-labelledby', 'mechanism-heading');

@@ -38,37 +38,72 @@ function el(name: string, attrs: Record<string, string | number>): SVGElement {
   return e;
 }
 
-function costColor(cost: number): string {
-  // low cost → cool (textured), high cost → warm (smooth). Matches the heatmap story.
+/** The ink every cell's cost is written in. Constant, so the ramp must suit it. */
+const CELL_INK = '#0b1512';
+
+/**
+ * Cost → cell fill: low cost cool (textured), high cost warm (smooth), matching
+ * the heatmap story the rest of the lab tells.
+ *
+ * The ramp is deliberately PALE. It used to run rgb(60,120,200) → rgb(220,60,50)
+ * — saturated enough that the dark cost label written on top measured 3.55:1 to
+ * 4.04:1 against it, under the 4.5:1 floor at every step of the ramp. There is
+ * no lightness of a saturated blue-to-red ramp at which near-black text clears
+ * AA, so the ramp moved instead of the ink: every stop of this one measures at
+ * least 8.9:1 against CELL_INK, and the blue→red reading is unchanged.
+ *
+ * `dim` desaturates toward a light neutral rather than dropping the cell's
+ * opacity. Opacity was the second half of the same bug: a 0.35-alpha cell over
+ * the dark-theme `--bg-tertiary` stage composited to a mid-tone, and the label —
+ * a full-opacity sibling, not part of the faded group — read 1.70:1 to 1.80:1
+ * against it. Washing the colour out keeps the cell light in both themes, so the
+ * de-emphasis costs nothing legible, and saturation is a cue that survives a
+ * colour-vision deficiency better than the hue shift alone.
+ */
+function costColor(cost: number, dim = false): string {
   const t = Math.min(1, cost / 2);
-  const r = Math.round(60 + t * 160);
-  const g = Math.round(120 - t * 60);
-  const b = Math.round(200 - t * 150);
-  return `rgb(${r},${g},${b})`;
+  let r = 150 + t * 100;
+  let g = 195 - t * 40;
+  let b = 250 - t * 105;
+  if (dim) {
+    const NEUTRAL = 0.6;
+    r = r * (1 - NEUTRAL) + 196 * NEUTRAL;
+    g = g * (1 - NEUTRAL) + 199 * NEUTRAL;
+    b = b * (1 - NEUTRAL) + 204 * NEUTRAL;
+  }
+  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
 }
 
 function drawCarriers(svg: SVGSVGElement, highlight: number[], dim = false): void {
   const cellW = 46, cellH = 40, y = 46, x0 = 20;
   COSTS.forEach((cost, i) => {
     const x = x0 + i * cellW;
+    const chosen = highlight.includes(i);
     const rect = el('rect', {
       x, y, width: cellW - 8, height: cellH, rx: 5,
-      fill: costColor(cost),
-      opacity: dim && !highlight.includes(i) ? 0.35 : 1,
-      stroke: highlight.includes(i) ? '#ffd166' : 'rgba(0,0,0,0.5)',
-      'stroke-width': highlight.includes(i) ? 3 : 1,
+      fill: costColor(cost, dim && !chosen),
+      // A chosen cell is ringed in the same near-black as the labels — 8:1 or
+      // better against every stop of the ramp. The old #ffd166 ring measured
+      // 1.33:1 against the cells it was supposed to pick out, so the ring
+      // carried none of the selection; the ↧ marker and the full-saturation
+      // fill did all the work on their own.
+      stroke: chosen ? CELL_INK : 'rgba(0,0,0,0.35)',
+      'stroke-width': chosen ? 3 : 1,
     });
     svg.appendChild(rect);
     const label = el('text', {
       x: x + (cellW - 8) / 2, y: y + cellH / 2 + 4,
-      'text-anchor': 'middle', 'font-size': 11, fill: '#0b1512', 'font-weight': 700,
+      'text-anchor': 'middle', 'font-size': 11, fill: CELL_INK, 'font-weight': 700,
     });
     label.textContent = cost.toFixed(2);
     svg.appendChild(label);
-    if (highlight.includes(i)) {
+    if (chosen) {
       const flip = el('text', {
         x: x + (cellW - 8) / 2, y: y - 6,
-        'text-anchor': 'middle', 'font-size': 13, fill: '#ffd166', 'font-weight': 700,
+        // Sits ABOVE the cell, so its backdrop is the .stc-stage panel, not the
+        // ramp. The fixed #ffd166 it used to be measured 1.24:1 on the light
+        // theme's stage; the themed token is 7.8:1 dark and 6.0:1 light.
+        'text-anchor': 'middle', 'font-size': 13, fill: 'var(--warning-text)', 'font-weight': 700,
       });
       flip.textContent = '↧';
       svg.appendChild(flip);

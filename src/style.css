@@ -12,7 +12,13 @@
   --border-color:    #30363d;
   --border-subtle:   #21262d;
   --accent-color:    #238636;
-  --accent-hover:    #2ea043;
+  /* Hover DARKENS rather than brightens. The old #2ea043 measured 3.37:1
+     against the #ffffff --accent-fg it is painted with, so every mouse user
+     hovering Embed or Extract dropped the label below AA; and green has almost
+     no headroom above #238636 (4.63:1) to brighten into. Going the other way
+     gives 6.54:1 and still reads as a state change, because .btn-primary keeps
+     its border at the lighter --accent-color. */
+  --accent-hover:    #146c2c;
   --accent-fg:       #ffffff;
   --link-color:      #58a6ff;
   --link-hover:      #79c0ff;
@@ -64,7 +70,12 @@
   --error-bg:        #fff0ee;
   --error-border:    #cf222e;
   --error-text:      #a40e26;
-  --success-color:   #1a7f37;
+  /* Darker than the #1a7f37 this used to be. That value was only ever checked
+     against --success-bg (4.57:1); on --bg-tertiary — where .stat-value.resist,
+     .extract-msg and the STC schematic's chosen-path line all sit — it measured
+     4.36:1. #136c2e clears 5.56:1 there and improves every other surface it is
+     used on. */
+  --success-color:   #136c2e;
   --success-bg:      #dafbe1;
   --input-bg:        #ffffff;
   --input-border:    #6b7280;
@@ -277,28 +288,38 @@ main {
 
 .panels {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, 1fr), never a bare 1fr: an `auto`/`1fr` track takes a MIN-CONTENT
+     minimum, so one unbreakable child (a capacity table, a stats grid) widens
+     its whole column and pushes the document sideways instead of wrapping. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-lg);
 }
 
 @media (min-width: 769px) {
-  .panels { grid-template-columns: 1fr 1fr; }
+  .panels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1200px) {
-  .panels { grid-template-columns: 1fr 1fr 1fr; }
+  .panels { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 .panel {
   background-color: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow);
 }
 
+/* No `overflow: hidden` here, and no `overflow-y: auto` on .panel-body.
+   Between them they clipped 94-115px off every glossary bubble opened inside a
+   panel — a third of the plain-English text this lab added specifically so the
+   jargon would be readable. The scroll declaration bought nothing: the panels
+   size to their content, so scrollHeight equalled clientHeight in every state
+   and at every width measured. The header carries the top corner radius that
+   the clip used to produce (1px inside the panel's own border). */
 .panel-header {
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
   padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-tertiary);
@@ -317,7 +338,6 @@ main {
 .panel-body {
   padding: var(--space-lg);
   flex: 1;
-  overflow-y: auto;
 }
 
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
@@ -671,7 +691,7 @@ input[type='range'] { width: 100%; accent-color: var(--input-focus); }
 
 .summary-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-sm) var(--space-lg);
   font-size: 0.82rem;
 }
@@ -938,39 +958,6 @@ input[type='range'] { width: 100%; accent-color: var(--input-focus); }
   color: var(--text-secondary);
 }
 
-/* ─── Tooltips ───────────────────────────────────────────────────────────── */
-
-.tooltip-trigger {
-  position: relative;
-  cursor: help;
-  color: var(--text-accent);
-  font-size: 0.85em;
-}
-
-.tooltip-content {
-  display: none;
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 260px;
-  padding: var(--space-sm) var(--space-md);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  font-weight: 400;
-  color: var(--text-secondary);
-  box-shadow: var(--shadow);
-  z-index: 100;
-  line-height: 1.4;
-}
-
-.tooltip-trigger:hover .tooltip-content,
-.tooltip-trigger:focus .tooltip-content {
-  display: block;
-}
-
 /* ─── Info section ───────────────────────────────────────────────────────── */
 
 .info-section {
@@ -981,7 +968,7 @@ input[type='range'] { width: 100%; accent-color: var(--input-focus); }
 
 .info-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-lg);
 }
 
@@ -1097,7 +1084,9 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
   left: 0;
   top: calc(100% + 6px);
   z-index: 200;
-  width: min(300px, 78vw);
+  /* Width and left offset are re-set by `placeBubble` on every reveal; this is
+     the value it computes, kept here so the first frame is already right. */
+  width: min(300px, calc(100vw - 1rem));
   padding: var(--space-sm) var(--space-md);
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -1244,12 +1233,14 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
 
 /* ── Tablet ─────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .panels { grid-template-columns: 1fr; }
+  /* The override blocks re-drop the floor if they say a bare 1fr, which is how
+     a fixed base rule quietly stops applying below the breakpoint. */
+  .panels { grid-template-columns: minmax(0, 1fr); }
   .cl-hero, .hero-cta { padding-left: var(--space-md); padding-right: var(--space-md); }
   .bar-row { flex-wrap: wrap; }
   .bar-badge { min-width: auto; }
-  .summary-grid { grid-template-columns: 1fr; }
-  .info-grid { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .info-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ── Phone ──────────────────────────────────────────────────────────────── */
@@ -1272,7 +1263,6 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
   .image-wrap canvas { max-height: 200px; }
   .thumb-col canvas { max-width: 140px; }
   .info-grid { gap: var(--space-md); }
-  .tooltip-content { width: 200px; font-size: 0.72rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
