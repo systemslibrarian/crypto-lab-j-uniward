@@ -251,7 +251,8 @@ function shortfallNote(s: MethodStats): string {
 /**
  * Which method actually placed its changes most cheaply — computed from this run,
  * not asserted. J-UNIWARD does NOT always win: measured across the three bundled
- * covers, F5's per-change average is lower in 13 of 15 (cover, rate) states,
+ * covers, F5's per-change average is lower in 13 of the 15 (cover, rate) states
+ * measured — and in 9 of the 11 where F5 carried the whole payload,
  * because F5 only edits non-zero ACs and those are already the cheap ones. The
  * counterweight — how many changes each method made, and the summed distortion
  * that is J-UNIWARD's actual objective — is printed alongside so the ordering is
@@ -307,7 +308,8 @@ function methodExplanation(
     case 'juniward': {
       // Both sentences here used to be asserted: "At low payloads its exposure is
       // the lowest of the three" and "It never touches DC or flat regions". The
-      // first is false on 13 of 15 measured (cover, rate) states, including the
+      // first is false on 13 of the 15 measured (cover, rate) states — 9 of the
+      // 11 where F5 carried the whole payload — including the
       // shipped default; the second is contradicted by this run's own worst
       // placement whenever the payload pushes past the cheap coefficients. Both
       // are now read off the run.

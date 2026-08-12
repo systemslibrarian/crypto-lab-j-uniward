@@ -375,7 +375,8 @@ test('embed verdict, summary and steganalysis all describe the same run', async 
   //
   // Regression: the J-UNIWARD blurb asserted "At low payloads its exposure is the
   // lowest of the three" and "It never touches DC or flat regions" as fixed facts.
-  // The first is false on 13 of 15 measured (cover, rate) states — F5 only edits
+  // The first is false on 13 of the 15 measured (cover, rate) states, 9 of the 11
+  // where F5 carried the whole payload — F5 only edits
   // non-zero ACs, which are already the cheap ones — including this very state,
   // and the second's counter could not fire at all. Both are now read off the run,
   // so what is checked here is that the sentence agrees with the bars beside it.

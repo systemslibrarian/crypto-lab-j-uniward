@@ -29,9 +29,10 @@
  * average beats J-UNIWARD's on covers where J-UNIWARD's carrier pool (every AC,
  * zeros included) forces some spend in flatter blocks, even while F5 makes 2–3×
  * as many changes and leaves a shrinkage tell J-UNIWARD does not. Measured on the
- * three bundled covers, F5's mean exposure is lower than J-UNIWARD's in 13 of 15
- * (cover, rate) states, including the shipped default 0.10 bpnzac on
- * sample-grass (J-UNIWARD 7.1%, F5 4.5%).
+ * three bundled covers, F5's mean exposure is lower than J-UNIWARD's in 13 of the
+ * 15 (cover, rate) states measured — and in 9 of the 11 where F5 carried the whole
+ * payload — including the shipped default 0.10 bpnzac on sample-grass
+ * (J-UNIWARD 7.1%, F5 4.5%), where F5 wins 12 of 12 keyed runs.
  *
  * That is why nothing here or in the panel asserts a winner: the ordering is
  * computed from the run and displayed alongside the change counts and the summed
