@@ -1,5 +1,5 @@
 /**
- * Extractor — J-UNIWARD payload extraction via full STC (h=12, 4096 states)
+ * Extractor — J-UNIWARD payload extraction via block syndrome coding (h=12)
  *
  * Reverses the STC embedding performed by Embedder.ts.
  * Salt is read from the stego JPEG's sideband (first 16 bytes prepended

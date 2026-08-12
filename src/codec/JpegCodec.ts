@@ -158,8 +158,32 @@ class BitReader {
     this.end = end;
   }
 
+  /**
+   * Bytes of synthetic padding allowed past the end of the entropy segment. A
+   * legitimate entropy-coded segment can end mid-code, and conventional decoders
+   * pad to finish it; 4 bytes is far more than the longest Huffman code (16 bits)
+   * plus its magnitude field (11 bits) can need.
+   */
+  private static readonly MAX_PAD_BYTES = 4;
+  private padBytes = 0;
+
   private loadByte(): void {
-    if (this.pos >= this.end) return;
+    if (this.pos >= this.end) {
+      // `readBits` spins `while (this.nBits < n) this.loadByte()`. Returning here
+      // without adding bits — as this used to — makes that loop run forever on a
+      // truncated entropy stream, hanging the tab with no error and no way back.
+      // In the shipped app `decode()` runs jpeg-js first and jpeg-js rejects a
+      // truncated file ("marker was not found") before this parser is reached, so
+      // the hang is latent rather than live; that is a guard in another library,
+      // not an invariant of this one. Fail closed instead.
+      if (this.padBytes >= BitReader.MAX_PAD_BYTES) {
+        throw new Error('Truncated JPEG entropy data: the scan ended before the image did.');
+      }
+      this.padBytes++;
+      this.bits = this.bits << 8;
+      this.nBits += 8;
+      return;
+    }
     const b = this.buf[this.pos++];
     this.bits  = (this.bits << 8) | b;
     this.nBits += 8;

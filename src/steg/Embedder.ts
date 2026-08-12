@@ -1,5 +1,10 @@
 /**
- * Embedder — J-UNIWARD adaptive payload embedding with full STC (h=12, 4096 states)
+ * Embedder — J-UNIWARD adaptive payload embedding with binary block syndrome
+ * coding (h=12, 4096 states), solved exactly per block by Viterbi search.
+ *
+ * This is NOT the long shifted-submatrix syndrome-trellis construction of the
+ * paper: the trellis restarts every 12 message bits over its own window of
+ * carriers, so the result is block-optimal, not globally optimal.
  *
  * Replaces the former approximation entirely.
  * Uses PBKDF2-SHA-256 (600k) + HKDF key schedule + AES-CTR hat matrix.
@@ -188,8 +193,9 @@ export async function embed(
 
   // Keyed permutation over the FULL structural pool, then take the first
   // `carriersNeeded` in permuted order. This spreads the payload across the whole
-  // image (not just the top blocks) and lets the STC pick the globally cheapest —
-  // most textured — coefficients. Identical on the extract side, by construction.
+  // image (not just the top blocks) and lets the coder pick the cheapest carriers
+  // *within each 12-bit syndrome block* — not globally: the trellis restarts every
+  // block. Identical on the extract side, by construction.
   const perm = await derivePermutation(permKey, allCarriers.length);
   const n = carriersNeeded;
   const used = new Array<Carrier>(n);

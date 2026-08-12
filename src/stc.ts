@@ -1,7 +1,12 @@
 /**
- * stc.ts — Full Syndrome-Trellis Code: Viterbi embed + syndrome extract
+ * stc.ts — Binary block syndrome coding: Viterbi embed + syndrome extract
  *
- * Constraint height h=12 (4096 states). Full Viterbi-optimal STC implementation.
+ * Constraint height h=12 (4096 states). The Viterbi search is exact — it finds
+ * the minimum-cost change vector — but only WITHIN each 12-bit block over its own
+ * window of w carriers: `fwdCost` is re-initialised per block and the trellis
+ * does not carry state across message-bit boundaries. That is the difference from
+ * the published syndrome-trellis construction, which slides one small submatrix
+ * along a banded parity-check matrix spanning the whole carrier stream.
  *
  * The carriers handed to these functions are already in their final embedding
  * order — the keyed permutation that spreads the payload across the whole image

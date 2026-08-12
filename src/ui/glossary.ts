@@ -64,9 +64,9 @@ export const GLOSSARY: Record<string, GlossEntry> = {
   viterbi: {
     term: 'Viterbi',
     gloss:
-      'The Viterbi algorithm walks a trellis of candidate flip patterns and finds the single ' +
-      'globally cheapest one — the minimum-distortion placement over the whole cost map, not ' +
-      'a greedy per-coefficient choice.',
+      'The Viterbi algorithm walks a trellis of candidate flip patterns and finds the cheapest ' +
+      'one exactly, rather than choosing greedily coefficient by coefficient. Here it does that ' +
+      'per 12-bit block of the message, over that block\u2019s own window of carriers.',
   },
   shrinkage: {
     term: 'shrinkage',

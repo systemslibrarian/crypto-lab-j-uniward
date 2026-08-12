@@ -10,7 +10,7 @@
  *   1. A keyed permutation spreads the payload across the whole carrier pool, so
  *      changes never cluster.
  *   2. Over the cost map, MANY candidate flip patterns satisfy the message.
- *   3. The Viterbi trellis picks the ONE globally cheapest pattern — not a greedy
+ *   3. The Viterbi trellis picks the cheapest pattern in that block exactly — not a greedy
  *      per-coefficient guess.
  *
  * No cryptographic result is fabricated: the numbers here are a small teaching
@@ -156,7 +156,7 @@ const STEPS: StepDef[] = [
     },
   },
   {
-    title: '3 · Viterbi picks the globally cheapest set',
+    title: '3 · Viterbi picks the cheapest set for this block',
     caption:
       'The trellis evaluates candidate paths across the whole row at once and returns the ONE ' +
       'minimum-distortion flip-set that still encodes the message — hitting the cheap, textured ' +

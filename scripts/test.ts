@@ -173,6 +173,37 @@ async function main() {
     ok(`${sample}: round-trips through a real JPEG`, got.message === message, `got "${got.message}"`);
   }
 
+  // ── 4c. A truncated entropy stream fails closed instead of hanging ──
+  //
+  // `BitReader.readBits` loops `while (nBits < n) loadByte()`, and `loadByte`
+  // used to return without adding bits once the segment was exhausted — an
+  // unbounded spin on a truncated scan. In the app `decode()` calls jpeg-js
+  // first and jpeg-js rejects truncated files, so nothing reached it; that is a
+  // guard in another library, not an invariant of this parser. This test drops
+  // the jpeg-js polyfill so the parser is reached directly, which is the only
+  // way to exercise it.
+  //
+  // NOTE: before the fix this test does not fail, it HANGS — that is the defect.
+  console.log('\ntruncated entropy data fails closed');
+  {
+    const raw = readFileSync('public/samples/sample-grass.jpg');
+    const held = (globalThis as any).window;
+    (globalThis as any).window = {}; // no __jpegJs → straight into parseJpeg
+    let threw = '', decoded = false;
+    try {
+      const cut = raw.subarray(0, raw.length - 1200);
+      decode(cut.buffer.slice(cut.byteOffset, cut.byteOffset + cut.byteLength) as ArrayBuffer);
+      decoded = true;
+    } catch (e) { threw = (e as Error).message; }
+    (globalThis as any).window = held;
+    ok('a truncated scan throws rather than spinning', !decoded && /Truncated|marker|Invalid|entropy/i.test(threw),
+      threw || 'decoded a truncated file without complaint');
+
+    // …and the intact file still decodes, so the bound did not break valid input.
+    const dec = loadSample('sample-grass.jpg');
+    ok('the intact sample still decodes after the bound was added', dec.blockCount > 0);
+  }
+
   // ── 5. Steganalysis reports what it measured ──
   //
   // What this block used to assert, and why each one was worthless:
