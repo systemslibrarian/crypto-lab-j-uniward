@@ -5,7 +5,7 @@
 import { state, resetEmbedState } from '../state/app-state.ts';
 import { decode } from '../codec/JpegCodec.ts';
 import { computeCostMatrix, renderCostHeatmap } from '../steg/WaveletCost.ts';
-import { countNZAC, capacityBytes } from '../steg/Embedder.ts';
+import { countNZAC, capacityBytes, ENVELOPE_BYTES } from '../steg/Embedder.ts';
 import { drawImageOnCanvas, showAlert } from './renderers.ts';
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
@@ -106,29 +106,39 @@ export async function loadImage(file: File): Promise<void> {
     info.textContent = `${state.decoded.width} × ${state.decoded.height} px · ${state.decoded.blockCount} luma blocks · ${nzac.toLocaleString()} non-zero ACs`;
     imageInfo.appendChild(info);
 
-    // Capacity table
+    // Capacity table.
+    //
+    // The column used to print the raw bpnzac budget while the banner under the
+    // message box subtracted the 20-byte envelope from the same figure, so the two
+    // surfaces disagreed by exactly 20 bytes — and on the bundled smooth sample
+    // (nzac 1,088) the table said "0.1 bpnzac | 13 bytes | Safe" while typing one
+    // character said "Message exceeds capacity (-7 bytes)". Print the number the
+    // Embed button actually enforces, and never print a negative byte count.
+    //
+    // The Risk column asserted a security verdict ("Safe" at 0.1 bpnzac) that
+    // nothing here computes and that the Limitations panel contradicts. Payload
+    // size is what the rate sets; that is what it now says.
+    const capRows = [0.1, 0.2, 0.4].map((r) => {
+      const usable = capacityBytes(nzac, r) - ENVELOPE_BYTES;
+      const cell = usable > 0
+        ? `${usable} bytes`
+        : `0 bytes <span class="text-muted">(too small for the ${ENVELOPE_BYTES}-byte envelope)</span>`;
+      const band = r <= 0.1 ? ['badge-safe', 'Lower payload']
+        : r <= 0.2 ? ['badge-moderate', 'Medium payload']
+        : ['badge-risky', 'Higher payload'];
+      return `<tr><td>${r} bpnzac</td><td>${cell}</td>
+              <td><span class="badge ${band[0]}">${band[1]}</span></td></tr>`;
+    }).join('');
+
     capacityTable.innerHTML = `
       <table class="capacity-table">
-        <thead><tr><th>Rate</th><th>Capacity</th><th>Risk</th></tr></thead>
-        <tbody>
-          <tr><td>0.1 bpnzac</td><td>${capacityBytes(nzac, 0.1)} bytes</td>
-              <td><span class="badge badge-safe">Safe</span></td></tr>
-          <tr><td>0.2 bpnzac</td><td>${capacityBytes(nzac, 0.2)} bytes</td>
-              <td><span class="badge badge-moderate">Moderate</span></td></tr>
-          <tr><td>0.4 bpnzac</td><td>${capacityBytes(nzac, 0.4)} bytes</td>
-              <td><span class="badge badge-risky">Risky</span></td></tr>
-        </tbody>
-      </table>`;
+        <thead><tr><th>Rate</th><th>Message capacity</th><th>Payload</th></tr></thead>
+        <tbody>${capRows}</tbody>
+      </table>
+      <p class="text-muted text-xs">Capacity is after the 4-byte length header and 16-byte MAC.</p>`;
 
-    // Image suitability indicator
-    const avgCost = estimateAvgCost(state.decoded);
-    if (avgCost < 50) {
-      suitability.innerHTML = '<span class="badge badge-risky">⚠ Poor carrier</span> <span class="text-muted">Flat / smooth image — limited texture for hiding data</span>';
-    } else if (avgCost < 200) {
-      suitability.innerHTML = '<span class="badge badge-moderate">Moderate carrier</span> <span class="text-muted">Some texture — adequate for small payloads</span>';
-    } else {
-      suitability.innerHTML = '<span class="badge badge-safe">Good carrier</span> <span class="text-muted">Rich texture — ideal for adaptive embedding</span>';
-    }
+    // Image suitability indicator — see carrierDensityBadge().
+    suitability.innerHTML = carrierDensityBadge(nzac, state.decoded.blockCount);
 
     setLoadProgress(
       'Computing J-UNIWARD distortion cost map…',
@@ -165,21 +175,41 @@ export async function loadImage(file: File): Promise<void> {
   }
 }
 
-/** Rough estimate of average wavelet cost — used for suitability indicator. */
-function estimateAvgCost(dec: NonNullable<typeof state.decoded>): number {
-  // Quick proxy: variance of luma pixel intensities
-  const px = dec.lumaPixels;
-  let sum = 0, sum2 = 0;
-  const n = Math.min(px.length, 10000); // sample
-  const stride = Math.max(1, Math.floor(px.length / n));
-  let count = 0;
-  for (let i = 0; i < px.length; i += stride) {
-    sum  += px[i];
-    sum2 += px[i] * px[i];
-    count++;
+/**
+ * Carrier-density badge.
+ *
+ * This used to be the variance of the luma pixels, thresholded at 50/200 and
+ * captioned "Rich texture — ideal for adaptive embedding". Variance is not
+ * texture: a smooth gradient sweeps the whole intensity range and scores high.
+ * The bundled `sample-smooth.jpg` — the lab's own "Smooth (sunset gradient)" —
+ * measured variance 498 and was therefore labelled a **Good carrier, rich
+ * texture, ideal**, while its cost map gives it the lowest non-zero AC count of
+ * the three bundled covers (1,088 against 3,501 and 5,185) and a message capacity
+ * of **-7 bytes** at the shipped 0.10 bpnzac default. The badge asserted the
+ * opposite of what every other number on the page said.
+ *
+ * Non-zero AC density is the quantity the rest of this lab is actually built on:
+ * it is the bpnzac denominator, it is printed beside the badge, and it is what
+ * runs out. The band edges (3% / 7%) are a presentation choice calibrated on the
+ * bundled covers — smooth 1.7%, grass 5.4%, portrait 8.0% — so the number that
+ * drove the verdict is shown next to it rather than hidden behind an adjective.
+ */
+function carrierDensityBadge(nzac: number, blockCount: number): string {
+  const acPool = blockCount * 63;
+  const density = acPool > 0 ? nzac / acPool : 0;
+  const pct = (density * 100).toFixed(1);
+  const evidence = `<span class="text-muted">${nzac.toLocaleString()} of ${acPool.toLocaleString()} `
+    + `AC coefficients are non-zero (${pct}%)`;
+
+  if (density < 0.03) {
+    return `<span class="badge badge-risky">⚠ Low-texture carrier</span> ${evidence} — `
+      + 'little room, and the cheap coefficients run out fast.</span>';
   }
-  const mean = sum / count;
-  return (sum2 / count) - mean * mean; // variance as proxy for texture
+  if (density < 0.07) {
+    return `<span class="badge badge-moderate">Moderate-texture carrier</span> ${evidence}.</span>`;
+  }
+  return `<span class="badge badge-safe">High-texture carrier</span> ${evidence} — `
+    + 'more cheap coefficients to spend the payload on.</span>';
 }
 
 // ─── Heatmap toggle ──────────────────────────────────────────────────────────

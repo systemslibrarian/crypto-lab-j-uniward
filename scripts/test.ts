@@ -11,7 +11,7 @@ import jpegjs from 'jpeg-js';
 import { readFileSync } from 'fs';
 import { decode, encode, forwardDCTQuantize } from '../src/codec/JpegCodec.ts';
 import { computeCostMatrix, computeCostMatrixSlow } from '../src/steg/WaveletCost.ts';
-import { embed, selectCarriers } from '../src/steg/Embedder.ts';
+import { embed, selectCarriers, countNZAC, capacityBytes, usableCapacityBytes } from '../src/steg/Embedder.ts';
 import { extract } from '../src/steg/Extractor.ts';
 import { runAnalysis } from '../src/analysis/StegAnalysis.ts';
 
@@ -173,8 +173,25 @@ async function main() {
     ok(`${sample}: round-trips through a real JPEG`, got.message === message, `got "${got.message}"`);
   }
 
-  // ── 5. Steganalysis is honest and discriminating ──
-  console.log('\nsteganalysis discrimination');
+  // ── 5. Steganalysis reports what it measured ──
+  //
+  // What this block used to assert, and why each one was worthless:
+  //
+  //   'F5 and J-UNIWARD never touch DC/flat'  — could not fail. `structHits`
+  //     counts DC edits plus AC costs at or above 1e7; WaveletCost gives DC 1e8
+  //     and every AC a finite cost whose maximum across the bundled covers is
+  //     1.1e5, so for any DCT-domain method the counter is pinned at 0 by
+  //     construction. The test was proving the loop bounds, not the placement.
+  //
+  //   'J-UNIWARD hides changes better than LSB' — true on this one cover at this
+  //     one rate, false elsewhere (on sample-grass at 0.20 bpnzac and above, LSB's
+  //     per-change mean is the lower of the two). It pinned a claim the page then
+  //     printed unconditionally.
+  //
+  // The replacements below assert the invariants instead: that the counter which
+  // used to carry the "flat" caption genuinely cannot see flat placement, that
+  // the counter which replaced it genuinely can, and that no fixed winner exists.
+  console.log('\nsteganalysis reports what it measured');
   {
     const dec = loadSample('sample-grass.jpg');
     const costs = await computeCostMatrix(dec.lumaPixels, dec.quantTable, dec.lumaBlocksWide, dec.lumaBlocksHigh);
@@ -182,13 +199,103 @@ async function main() {
     const res = await embed(dec.dctCoeffs, dec.quantTable, costs, 'x'.repeat(payloadBytes - 20), 'k', 0.10);
     const a = runAnalysis(dec.lumaPixels, dec.dctCoeffs, res.modifiedCoeffs, payloadBytes, dec.quantTable, costs, dec.lumaBlocksWide, dec.lumaBlocksHigh);
 
-    ok('LSB corrupts DC/flat coefficients', a.lsb.structHits > 0, `structHits=${a.lsb.structHits}`);
-    ok('F5 and J-UNIWARD never touch DC/flat', a.f5.structHits === 0 && a.juniward.structHits === 0);
-    ok('J-UNIWARD hides changes better than LSB', a.juniward.meanExposure < a.lsb.meanExposure,
-      `ju=${a.juniward.meanExposure.toFixed(3)} lsb=${a.lsb.meanExposure.toFixed(3)}`);
-    ok('LSB is labelled Detectable, J-UNIWARD is not', a.lsb.label === 'Detectable' && a.juniward.label !== 'Detectable',
-      `lsb=${a.lsb.label} ju=${a.juniward.label}`);
+    ok('LSB corrupts the DC term on this cover', a.lsb.structHits > 0, `structHits=${a.lsb.structHits}`);
     ok('per-block change map is populated', a.juniward.changedBlocks.some(v => v > 0));
+
+    // structHits cannot report a flat-region hit, so nothing may caption it as one.
+    let maxAC = -Infinity, acCount = 0, atOrOverWet = 0;
+    for (const b of costs) for (let zi = 1; zi < 64; zi++) {
+      const c = b[zi]; acCount++;
+      if (!isFinite(c) || c >= 1e7) atOrOverWet++; else if (c > maxAC) maxAC = c;
+    }
+    ok('no AC coefficient reaches the wet threshold structHits tests, so it is a DC counter only',
+      atOrOverWet === 0 && maxAC < 1e7,
+      `${atOrOverWet} of ${acCount} ACs >= 1e7, max AC cost ${maxAC.toExponential(2)}`);
+
+    // No fixed winner: F5 only edits non-zero ACs, which are already the cheap
+    // ones, so on the default cover at the default rate its per-change mean is
+    // BELOW J-UNIWARD's. Measured 12/12 keyed runs at every rate 0.10-0.50.
+    ok('F5 beats J-UNIWARD on per-change exposure here — no method may be declared the winner up front',
+      a.f5.bitsEmbedded === a.f5.bitsRequested && a.f5.meanExposure < a.juniward.meanExposure,
+      `f5=${a.f5.meanExposure.toFixed(3)} ju=${a.juniward.meanExposure.toFixed(3)}`);
+    ok('J-UNIWARD still makes far fewer changes and less total distortion at this rate',
+      a.juniward.changesCount < a.f5.changesCount && a.juniward.totalDistortion < a.f5.totalDistortion,
+      `ju ${a.juniward.changesCount} chg / ${a.juniward.totalDistortion.toExponential(2)}, ` +
+      `f5 ${a.f5.changesCount} chg / ${a.f5.totalDistortion.toExponential(2)}`);
+  }
+
+  // ── 5b. F5 silently under-embeds on a low-NZAC cover ──
+  console.log('\nunequal-payload detection');
+  {
+    const dec = loadSample('sample-smooth.jpg');
+    const costs = await computeCostMatrix(dec.lumaPixels, dec.quantTable, dec.lumaBlocksWide, dec.lumaBlocksHigh);
+    const nzac = countNZAC(dec.dctCoeffs);
+    const cap = usableCapacityBytes(nzac, 0.40);
+    ok('the smooth cover can hold a message at 0.40 bpnzac', cap > 0, `capacity ${cap} bytes`);
+    // …and holds none at the shipped 0.10 default — the state that used to print
+    // "13 bytes / Safe" in the table and "(-7 bytes at current rate)" in the banner.
+    ok('the smooth cover holds nothing at the 0.10 default, and capacity never goes negative',
+      usableCapacityBytes(nzac, 0.10) === 0 && capacityBytes(nzac, 0.10) - 20 < 0,
+      `usable=${usableCapacityBytes(nzac, 0.10)} raw=${capacityBytes(nzac, 0.10) - 20}`);
+
+    const res = await embed(dec.dctCoeffs, dec.quantTable, costs, 'x'.repeat(cap), 'k', 0.40);
+    const a = runAnalysis(dec.lumaPixels, dec.dctCoeffs, res.modifiedCoeffs, cap + 20, dec.quantTable, costs, dec.lumaBlocksWide, dec.lumaBlocksHigh);
+    ok('F5 runs out of non-zero ACs here and carries less than the requested payload',
+      a.f5.bitsEmbedded < a.f5.bitsRequested,
+      `f5 carried ${a.f5.bitsEmbedded} of ${a.f5.bitsRequested} bits`);
+    ok('J-UNIWARD carried the whole payload it was measured on',
+      a.juniward.bitsEmbedded === a.juniward.bitsRequested);
+    ok('the short method is the one with the lower exposure — ranking it would be wrong',
+      a.f5.meanExposure < a.juniward.meanExposure,
+      `f5=${a.f5.meanExposure.toFixed(3)} (short) ju=${a.juniward.meanExposure.toFixed(3)}`);
+    ok('carriers examined never exceed the AC pool they are counted against',
+      res.carriersUsed <= res.carrierPool, `${res.carriersUsed} / ${res.carrierPool}`);
+  }
+
+  // ── 5c. The costliest-decile counter is live, not decorative ──
+  //
+  // This is the counter that replaced the unfalsifiable "flat coefficients hit"
+  // claim, so it has to be shown capable of firing. It is genuinely rare — the
+  // salt is fresh per embed, so the permutation and therefore the placement move
+  // — measured at 6 of 12 keyed runs on sample-grass at 0.50 bpnzac and 0 of 12
+  // at 0.40 and below. The loop therefore FAILS if it never fires: a silent zero
+  // would mean the counter is dead again.
+  console.log('\ncostliest-decile placement actually occurs');
+  {
+    const dec = loadSample('sample-grass.jpg');
+    const costs = await computeCostMatrix(dec.lumaPixels, dec.quantTable, dec.lumaBlocksWide, dec.lumaBlocksHigh);
+    const nzac = countNZAC(dec.dctCoeffs);
+    const cap = usableCapacityBytes(nzac, 0.50);
+    const N = 10;
+    let fired = 0, totalTop = 0, maxSeen = 0;
+    const means: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const res = await embed(dec.dctCoeffs, dec.quantTable, costs, 'x'.repeat(cap), `key-${i}`, 0.50);
+      const a = runAnalysis(dec.lumaPixels, dec.dctCoeffs, res.modifiedCoeffs, cap + 20, dec.quantTable, costs, dec.lumaBlocksWide, dec.lumaBlocksHigh);
+      if (a.juniward.topDecileChanges > 0) fired++;
+      totalTop += a.juniward.topDecileChanges;
+      maxSeen = Math.max(maxSeen, a.juniward.maxExposure);
+      means.push(a.juniward.meanExposure);
+    }
+    ok('J-UNIWARD does place changes in the costliest decile at 0.50 bpnzac',
+      fired > 0 && totalTop > 0,
+      `fired in ${fired}/${N} runs, ${totalTop} such changes, worst percentile ${(maxSeen * 100).toFixed(1)}%`);
+    ok('"it never touches flat regions" is false at this rate', maxSeen > 0.9,
+      `worst placement ${(maxSeen * 100).toFixed(1)}th percentile`);
+
+    // Exposure must climb with the payload — the replacement for the removed
+    // "recommended rate ≤ 0.3" assertion, which named a threshold nothing computed.
+    const sweep: number[] = [];
+    for (const r of [0.10, 0.20, 0.30, 0.40, 0.50]) {
+      const c2 = usableCapacityBytes(nzac, r);
+      const res = await embed(dec.dctCoeffs, dec.quantTable, costs, 'x'.repeat(c2), 'sweep', r);
+      const a = runAnalysis(dec.lumaPixels, dec.dctCoeffs, res.modifiedCoeffs, c2 + 20, dec.quantTable, costs, dec.lumaBlocksWide, dec.lumaBlocksHigh);
+      sweep.push(a.juniward.meanExposure);
+    }
+    ok('mean exposure rises monotonically with the payload rate',
+      sweep.every((v, i) => i === 0 || v > sweep[i - 1]),
+      sweep.map(v => (v * 100).toFixed(1) + '%').join(' → '));
+    void means;
   }
 
   console.log(`\n${failed === 0 ? '✓ all' : '✗'} ${passed} passed, ${failed} failed\n`);

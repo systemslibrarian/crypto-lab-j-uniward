@@ -45,12 +45,36 @@ async function text(page: Page, sel: string): Promise<string> {
   return ((await page.textContent(sel)) ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** Load the bundled sample via Quick Demo and wait for the cost map. */
-async function quickDemo(page: Page): Promise<void> {
-  await page.goto('.');
-  await page.click('#quick-demo-btn');
-  await expect(page.locator('#embed-btn')).toBeEnabled({ timeout: 120_000 });
+/**
+ * The bundled covers, in the order Load Sample / Quick Demo cycles them.
+ *
+ * Waiting on "#embed-btn enabled AND #image-info says Cost map ready" is only a
+ * valid wait for the FIRST load: on the second click both are already true from
+ * the previous cover, so the assertions run against stale numbers while the new
+ * image is still decoding. That raced badly enough to make an over-capacity embed
+ * look like it succeeded. Every load now waits for the new cover's own filename,
+ * which the done banner prints and which `loadImage` clears before starting.
+ */
+const SAMPLE_FILES = ['sample-grass.jpg', 'sample-smooth.jpg', 'sample-portrait.jpg'] as const;
+
+async function awaitSample(page: Page, index: number): Promise<void> {
+  const name = SAMPLE_FILES[index % SAMPLE_FILES.length];
+  await expect(page.locator('#image-info')).toContainText(`(${name},`, { timeout: 120_000 });
   await expect(page.locator('#image-info')).toContainText('Cost map ready');
+  await expect(page.locator('#embed-btn')).toBeEnabled({ timeout: 120_000 });
+}
+
+/** Click Load Sample and wait for cover `index` of the cycle to be fully ready. */
+async function loadSample(page: Page, index: number): Promise<void> {
+  await page.click('#load-sample');
+  await awaitSample(page, index);
+}
+
+/** Load the bundled sample via Quick Demo and wait for the cost map. */
+async function quickDemo(page: Page, index = 0): Promise<void> {
+  if (index === 0) await page.goto('.');
+  await page.click('#quick-demo-btn');
+  await awaitSample(page, index);
 }
 
 async function clickEmbed(page: Page): Promise<void> {
@@ -154,6 +178,7 @@ test('the capacity table is consistent with the NZAC count the page reported', a
   await quickDemo(page);
 
   const nzac = await reportedNzac(page);
+  const blocks = await reportedBlocks(page);
   expect(nzac).toBeGreaterThan(0);
 
   const rows = await page.$$eval('#capacity-table tbody tr', (trs) =>
@@ -161,16 +186,22 @@ test('the capacity table is consistent with the NZAC count the page reported', a
   );
   expect(rows).toHaveLength(3);
 
-  for (const [rateCell, capCell, riskCell] of rows) {
+  // The table prints the capacity the Embed button enforces — bpnzac budget minus
+  // the 20-byte header+MAC envelope — not the raw budget. It used to print the raw
+  // budget while the banner under the message box subtracted the envelope from the
+  // same figure, so the two surfaces disagreed by exactly 20 bytes.
+  for (const [rateCell, capCell, payloadCell] of rows) {
     const rate = Number(rateCell.replace(' bpnzac', ''));
-    const cap = num(capCell.replace(' bytes', ''));
-    // bpnzac is bits per non-zero AC: capacity = floor(nzac * rate / 8).
-    expect(cap, `capacity at ${rate} bpnzac`).toBe(Math.floor((nzac * rate) / 8));
-    expect(riskCell).toMatch(/Safe|Moderate|Risky/);
+    const cap = num(capCell.replace(/ bytes.*/, ''));
+    expect(cap, `capacity at ${rate} bpnzac`).toBe(Math.max(0, Math.floor((nzac * rate) / 8) - 20));
+    expect(cap, `capacity at ${rate} bpnzac must never be negative`).toBeGreaterThanOrEqual(0);
+    // The column names payload size, which the rate sets — not a security verdict.
+    expect(payloadCell).toMatch(/Lower payload|Medium payload|Higher payload/);
+    expect(payloadCell).not.toMatch(/\bSafe\b|\bRisky\b/);
   }
 
   // Capacity must rise monotonically with the rate.
-  const caps = rows.map((r) => num(r[1].replace(' bytes', '')));
+  const caps = rows.map((r) => num(r[1].replace(/ bytes.*/, '')));
   expect(caps[0]).toBeLessThan(caps[1]);
   expect(caps[1]).toBeLessThan(caps[2]);
 
@@ -184,8 +215,71 @@ test('the capacity table is consistent with the NZAC count the page reported', a
   expect(await text(page, '#char-count')).toBe(`${message.length} chars`);
   expect(await page.inputValue('#key-input')).not.toBe('');
 
-  // Suitability is one of the three states the README documents.
-  expect(await text(page, '#image-suitability')).toMatch(/Poor carrier|Moderate carrier|Good carrier/);
+  // The carrier badge must show the number that produced it, and that number must
+  // be the NZAC figure printed just above — it used to be the variance of the luma
+  // pixels, which called the bundled smooth gradient "Rich texture … ideal".
+  const suit = await text(page, '#image-suitability');
+  expect(suit).toMatch(/Low-texture carrier|Moderate-texture carrier|High-texture carrier/);
+  const suitNums = suit.match(/([\d,]+) of ([\d,]+) AC coefficients are non-zero \(([\d.]+)%\)/);
+  expect(suitNums, `carrier badge should show its evidence: ${suit}`).not.toBeNull();
+  expect(num(suitNums![1])).toBe(nzac);
+  expect(num(suitNums![2])).toBe(blocks * 63);
+  expect(Number(suitNums![3])).toBeCloseTo((nzac / (blocks * 63)) * 100, 1);
+  expect(suit).not.toContain('ideal');
+});
+
+/**
+ * Regression: `sample-smooth.jpg` — the lab's own "Smooth (sunset gradient)" —
+ * scored luma variance 498 and was therefore badged **Good carrier · Rich texture
+ * — ideal for adaptive embedding**, while its cost map gives it 1,088 non-zero ACs
+ * (1.7% of the AC pool, the lowest of the three bundled covers) and a message
+ * capacity of **-7 bytes** at the shipped 0.10 default. Three surfaces, one image,
+ * three different answers: the badge said ideal, the table said "13 bytes / Safe",
+ * the banner said "(-7 bytes at current rate)".
+ *
+ * This test hunts for the low-capacity cover among the bundled samples and FAILS
+ * if none of them is one — a lab with no such cover proves nothing here.
+ */
+test('a cover too small for the envelope says so on every surface, and never prints a negative capacity', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto('.');
+
+  let found = false;
+  for (let i = 0; i < SAMPLE_FILES.length && !found; i++) {
+    await loadSample(page, i);
+
+    const nzac = await reportedNzac(page);
+    const rate = Number(await page.inputValue('#rate-slider'));
+    expect(rate, 'the shipped default rate').toBe(0.1);
+    if (Math.floor((nzac * rate) / 8) - 20 > 0) continue; // this cover has room
+    found = true;
+
+    // The table row for the default rate reads zero, and names why.
+    const firstRow = await text(page, '#capacity-table tbody tr:first-child');
+    expect(firstRow).toContain('0 bytes');
+    expect(firstRow).toContain('envelope');
+    expect(firstRow).not.toMatch(/-\d/);
+
+    // Typing one character produces the same verdict, not a negative byte count.
+    await page.fill('#msg-input', 'x');
+    const banner = await text(page, '#capacity-warn');
+    await expect(page.locator('#capacity-warn')).toHaveClass(/alert-error/);
+    expect(banner).not.toMatch(/-\d+ bytes/);
+    expect(banner).toContain('holds no message at 0.10 bpnzac');
+
+    // And the badge is honest about why: lowest carrier density of the set.
+    expect(await text(page, '#image-suitability')).toContain('Low-texture carrier');
+
+    // Embed refuses, quoting the same zero.
+    await page.fill('#key-input', KEY);
+    await page.click('#embed-btn');
+    await expect(page.locator('#embed-status')).toHaveClass(/alert-error/);
+    expect(await text(page, '#embed-status')).toContain('capacity at 0.10 bpnzac is 0 bytes');
+    await expect(page.locator('#embed-summary')).toHaveClass(/hidden/);
+  }
+
+  expect(found, 'no bundled cover is small enough to exercise the zero-capacity path — ' +
+    'this test would otherwise pass without checking anything').toBe(true);
 });
 
 // ─── 2. The embed verdict, summary and analysis describe ONE run ──────────────
@@ -219,13 +313,18 @@ test('embed verdict, summary and steganalysis all describe the same run', async 
   expect(macPart).toBe(16);
   expect(total).toBe(msgPart + hdrPart + macPart);
 
-  // Carriers used / NZAC: the NZAC figure must match the one printed on load,
-  // and a subset relationship must hold both ways.
-  const carriers = s['Carriers used'].match(/^([\d,]+) \/ ([\d,]+) NZAC$/);
-  expect(carriers, `carriers cell shape: ${s['Carriers used']}`).not.toBeNull();
+  // Carriers examined are counted against the pool they were drawn from — every
+  // non-DC AC coefficient, 63 per luma block. The cell used to print them over the
+  // NZAC count instead, and at capacity with rate 0.40 that reads "3,510 / 3,501
+  // NZAC": more carriers than the denominator they were measured against.
+  const carriers = s['Carriers examined']
+    .match(/^([\d,]+) \/ ([\d,]+) AC coefficients \(([\d,]+) of the pool are non-zero/);
+  expect(carriers, `carriers cell shape: ${s['Carriers examined']}`).not.toBeNull();
   const carriersUsed = num(carriers![1]);
-  expect(num(carriers![2])).toBe(nzac);
+  expect(num(carriers![2]), 'denominator is the full AC pool').toBe(blocks * 63);
+  expect(num(carriers![3]), 'NZAC is reported separately and matches the load-time figure').toBe(nzac);
   expect(carriersUsed).toBeGreaterThan(0);
+  expect(carriersUsed, 'carriers examined can never exceed the pool').toBeLessThanOrEqual(blocks * 63);
 
   // Changes are a subset of the carriers that were read, and the status line and
   // the summary card must not disagree about how many there were.
@@ -272,11 +371,47 @@ test('embed verdict, summary and steganalysis all describe the same run', async 
     }
   }
 
-  // README: "It never touches DC or flat regions" for J-UNIWARD, and LSB is the
-  // one a first-order detector flags.
-  expect(stats).toContain('0 — structure preserved');
-  expect(rows[2].badge).not.toBe('Detectable');
-  expect(rows[0].badge).toBe('Detectable');
+  // ── The ordering the panel names must be the ordering it drew ──
+  //
+  // Regression: the J-UNIWARD blurb asserted "At low payloads its exposure is the
+  // lowest of the three" and "It never touches DC or flat regions" as fixed facts.
+  // The first is false on 13 of 15 measured (cover, rate) states — F5 only edits
+  // non-zero ACs, which are already the cheap ones — including this very state,
+  // and the second's counter could not fire at all. Both are now read off the run,
+  // so what is checked here is that the sentence agrees with the bars beside it.
+  const ordering = await text(page, '.ordering-note');
+  const named = ordering.match(/In this run: (LSB|F5|J-UNIWARD) has the lowest per-change exposure \(([\d.]+)%\)/);
+  expect(named, `ordering note should name the measured leader: ${ordering}`).not.toBeNull();
+
+  const comparable = rows.filter((r) => r.badge !== 'Negligible');
+  expect(comparable.length, 'at least two methods must be comparable here').toBeGreaterThanOrEqual(2);
+  const lowest = comparable.reduce((a, b) =>
+    Number(a.value.replace('%', '')) <= Number(b.value.replace('%', '')) ? a : b);
+  expect(named![1], 'the named leader must be the lowest bar on screen').toBe(lowest.label);
+  // The bar rounds to whole percent; the note carries one decimal. Same number.
+  expect(Math.round(Number(named![2]))).toBe(Number(lowest.value.replace('%', '')));
+
+  // Whatever the ordering, the J-UNIWARD blurb must not contradict it.
+  await page.click('.method-tab[data-method="juniward"]');
+  const juBlurb = await text(page, '.method-explanation');
+  if (named![1] !== 'J-UNIWARD') {
+    expect(juBlurb, 'J-UNIWARD must not claim the lowest exposure when it does not have it')
+      .not.toContain('is the lowest of the three');
+    expect(juBlurb).toContain('higher than');
+  } else {
+    expect(juBlurb).toContain('is the lowest of the three');
+  }
+
+  // The DC counter is captioned for what it counts, and the live smooth-placement
+  // counter is present with a real denominator.
+  const juStats = await text(page, '#stats-container');
+  expect(juStats).toContain('DC (flat-brightness) terms hit');
+  expect(juStats).not.toContain('structure preserved — ');
+  const decile = juStats.match(/Changes in the costliest 10% of coefficients ([\d,]+) of ([\d,]+) \(worst landed at the (\d+)th percentile\)/);
+  expect(decile, `costliest-decile stat should be present with counts: ${juStats}`).not.toBeNull();
+  expect(num(decile![2])).toBe(changes);
+  expect(num(decile![1])).toBeLessThanOrEqual(num(decile![2]));
+  expect(Number(decile![3])).toBeGreaterThan(0);
 
   // The active method's counter agrees with the embed, and the denominator is
   // the full AC pool: 63 AC coefficients per luma block.
@@ -296,6 +431,70 @@ test('embed verdict, summary and steganalysis all describe the same run', async 
   const lsbChanged = lsbStats.match(/Coefficients changed ([\d,]+) \/ ([\d,]+)/);
   expect(num(lsbChanged![2])).toBe(blocks * 63);
   expect(num(lsbChanged![1])).toBeGreaterThan(0);
+});
+
+/**
+ * Regression: `runAnalysis` computed `f5Embed().bitsEmbedded` and threw it away.
+ * On the bundled smooth cover F5 exhausts the non-zero AC coefficients and carries
+ * 163 of the 216–520 requested bits (75% down to 31% as the rate rises), yet its
+ * exposure bar — 3.3%, badged "Resistant" — was drawn beside J-UNIWARD's under an
+ * explainer promising "the same payload across all three methods".
+ *
+ * The test hunts the bundled covers for one where a method comes up short and
+ * FAILS if none does, so it cannot pass by never reaching the state.
+ */
+test('a method that could not carry the payload is marked invalid, not ranked', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('.');
+
+  let found = false;
+  for (let i = 0; i < SAMPLE_FILES.length && !found; i++) {
+    await loadSample(page, i);
+
+    const nzac = await reportedNzac(page);
+    const capacity = Math.max(0, Math.floor((nzac * 0.4) / 8) - 20);
+    if (capacity < 4) continue;
+
+    await page.evaluate(() => {
+      const slider = document.getElementById('rate-slider') as HTMLInputElement;
+      slider.value = '0.4';
+      slider.dispatchEvent(new Event('input'));
+    });
+    await page.fill('#msg-input', 'x'.repeat(capacity));
+    await page.fill('#key-input', KEY);
+    await clickEmbed(page);
+    expect(await text(page, '#embed-status')).toContain('✓ Embedded via STC');
+
+    const notes = await page.$$eval('.shortfall-note', (els) =>
+      els.map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim()));
+    if (notes.length === 0) continue;
+    found = true;
+
+    for (const note of notes) {
+      const m = note.match(/carried only ([\d,]+) of the ([\d,]+) requested payload bits \((\d+)%\)/);
+      expect(m, `shortfall note should quote both bit counts: ${note}`).not.toBeNull();
+      const carried = num(m![1]);
+      const requested = num(m![2]);
+      expect(carried, 'a shortfall note must describe a real shortfall').toBeLessThan(requested);
+      expect(carried).toBeGreaterThan(0);
+      expect(Math.round((carried / requested) * 100)).toBe(Number(m![3]));
+      expect(note).toContain('Comparison invalid');
+    }
+
+    // …and the short method must not be crowned by the ordering note.
+    const ordering = await text(page, '.ordering-note');
+    const named = ordering.match(/In this run: (LSB|F5|J-UNIWARD) has the lowest per-change exposure/);
+    expect(named, `ordering note present: ${ordering}`).not.toBeNull();
+    // The one that came up short is excluded from the ranking entirely.
+    const shortLabels = await page.$$eval('.analysis-bars .bar-row', (els) =>
+      els.filter((el) => el.nextElementSibling?.classList.contains('shortfall-note'))
+        .map((el) => el.querySelector('.bar-label')?.textContent?.trim() ?? ''));
+    expect(shortLabels.length).toBeGreaterThan(0);
+    expect(shortLabels).not.toContain(named![1]);
+  }
+
+  expect(found, 'no bundled cover made any method come up short — this test would ' +
+    'otherwise pass without exercising the shortfall path at all').toBe(true);
 });
 
 // ─── 3. Round-trip: extract recovers exactly what was embedded ────────────────
@@ -586,9 +785,7 @@ test('loading a different cover retires the previous embed', async ({ page }) =>
   await expect(page.locator('#post-embed')).not.toHaveClass(/hidden/);
 
   // Quick Demo cycles to the next bundled sample.
-  await page.click('#quick-demo-btn');
-  await expect(page.locator('#embed-btn')).toBeEnabled({ timeout: 120_000 });
-  await expect(page.locator('#image-info')).toContainText('Cost map ready');
+  await quickDemo(page, 1);
 
   await expect(page.locator('#post-embed')).toHaveClass(/hidden/);
   await expect(page.locator('#embed-summary')).toHaveClass(/hidden/);
@@ -605,9 +802,7 @@ test('an uploaded stego file wins over the embed still held in memory', async ({
   await quickDemo(page);
   const first = await embedAndDownload(page, 'The uploaded one.');
 
-  await page.goto('.');
-  await page.click('#quick-demo-btn');
-  await expect(page.locator('#embed-btn')).toBeEnabled({ timeout: 120_000 });
+  await quickDemo(page);
   await embedMessage(page, 'The in-memory one.');
 
   await page.click('#tab-extract');
@@ -650,7 +845,7 @@ test('the embed button keeps its shipped label across runs', async ({ page }) =>
   expect(label).toContain('J-UNIWARD');
 
   await page.click('#quick-demo-btn');
-  await expect(page.locator('#embed-btn')).toBeEnabled({ timeout: 120_000 });
+  await awaitSample(page, 0);
   await embedMessage(page, 'Label check.');
   expect(await text(page, '#embed-btn')).toBe(label);
   expect(await text(page, '#extract-btn')).toContain('Extract');

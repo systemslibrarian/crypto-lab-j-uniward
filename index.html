@@ -216,7 +216,7 @@
         </div>
         <div class="onboarding-result">
           <p>→ See changes concentrated in textured regions</p>
-          <p>→ Compare detection scores across three methods</p>
+          <p>→ Compare where all three methods put their changes — placement, not a detector verdict</p>
         </div>
         <button id="dismiss-onboarding" class="btn btn-ghost btn-sm">Dismiss</button>
       </section>
@@ -313,9 +313,9 @@
                   <input id="rate-slider" type="range" min="0.05" max="0.50" step="0.01" value="0.10"
                     aria-label="Embedding rate" />
                   <div class="range-labels">
-                    <span>0.05 (safe)</span>
-                    <span>0.25 (moderate)</span>
-                    <span>0.50 (risky)</span>
+                    <span>0.05 (lower payload)</span>
+                    <span>0.25 (medium)</span>
+                    <span>0.50 (higher payload)</span>
                   </div>
                 </div>
 
@@ -328,7 +328,9 @@
                 </div>
 
                 <div id="rate-warning" class="alert alert-warning hidden">
-                  ⚠ Rate &gt; 0.3 bpnzac — detectability increases sharply. Use ≤ 0.3 for meaningful stealth.
+                  ⚠ Rate &gt; 0.3 bpnzac — more payload means more changes, and the cheap textured
+                  coefficients run out first, so each extra bit is placed in a costlier spot. No payload is
+                  universally undetectable; watch the exposure bars for this cover rather than trusting a threshold.
                 </div>
 
                 <div class="btn-row">
@@ -409,12 +411,19 @@
                   <dt>Change exposure</dt>
                   <dd>Where each method's changes land, ranked against the J-UNIWARD cost map. 0% = hidden in
                     the most textured coefficients; 100% = the smoothest, most conspicuous ones. Lower is stealthier.</dd>
-                  <dt><span data-term="dc">DC</span> / flat coefficients hit</dt>
-                  <dd>Structurally conspicuous edits. J-UNIWARD and F5 never touch them; naïve LSB does.</dd>
+                  <dt><span data-term="dc">DC</span> (flat-brightness) terms hit</dt>
+                  <dd>The one structurally conspicuous edit: shifting a whole 8×8 block's brightness.
+                    J-UNIWARD and F5 skip the DC term by construction; naïve LSB edits pixels, so its
+                    changes can land there too — how many depends on the cover. Alongside it, "changes in the costliest 10%" counts the
+                    edits that landed in this image's <em>smoothest</em> coefficients — which adaptive
+                    embedding reduces but does not eliminate.</dd>
                   <dt><span data-term="dct">DCT</span> histogram</dt>
                   <dd>The coefficient distribution. F5's magnitude-<span data-term="shrinkage">shrinkage</span> leaves a visible histogram signature.</dd>
                   <dt>Detectability label</dt>
-                  <dd>A rating from placement — "Resistant" through "Detectable" — for the same payload across all three methods.</dd>
+                  <dd>A rating derived from placement alone — "Resistant" through "Detectable" — not from a
+                    trained detector. All three methods are asked for the same payload; when one cannot
+                    carry it (F5 runs out of non-zero coefficients on smooth covers) the panel marks its
+                    comparison invalid rather than ranking it anyway.</dd>
                 </dl>
                 <p class="text-muted text-xs">Embed a message to compare all three methods on the same image and payload.</p>
               </div>
@@ -488,7 +497,10 @@
                   across the three first-level <strong>undecimated</strong> Daubechies-8
                   <span data-term="wavelet">wavelet</span> subbands (LH, HL, HH), with &sigma; = 2<sup>&minus;6</sup>.</li>
                 <li><strong>Embedding:</strong> <span data-term="stc">Syndrome-Trellis Codes</span> (h=12, 4096 states) find the
-                  minimum-distortion modification via <span data-term="viterbi">Viterbi</span> search.</li>
+                  minimum-distortion modification via <span data-term="viterbi">Viterbi</span> search. The
+                  search is exact <em>within</em> each 12-bit syndrome block over its own window of
+                  carriers; the trellis restarts per block rather than running one shifted parity-check
+                  matrix across the whole image, so the result is block-optimal, not globally optimal.</li>
                 <li><strong>Analysis:</strong> each method's changes are re-projected into the quantized
                   DCT domain (LSB via a real forward DCT) and ranked against the cost map by where they land.</li>
               </ul>
@@ -502,11 +514,16 @@
               <ul>
                 <li>The placement analysis is a proxy, not a detector. Real-world steganalysis
                   (e.g., SRM, SRNet, XuNet) uses deep learning on rich feature sets.</li>
-                <li>At high payloads even adaptive embedding runs out of textured coefficients — which is
-                  why the recommended rate is ≤ 0.3 bpnzac. Above that, all three methods become exposed.</li>
+                <li>At high payloads even adaptive embedding runs out of textured coefficients, so the
+                  average change lands in a costlier coefficient as the rate rises. The panel shows that
+                  climb for the cover you loaded rather than asserting a safe rate.</li>
                 <li>The COM marker sideband for salt/rate may be stripped by image pipelines,
-                  social media compression, or metadata-stripping tools.</li>
-                <li>J-UNIWARD is <em>more resistant</em> than LSB/F5 — not "undetectable." This is an
+                  social media compression, or metadata-stripping tools. It also makes any file this demo
+                  produces trivially identifiable as one — it is a teaching sideband, not a covert one.</li>
+                <li>J-UNIWARD is not "undetectable," and on this lab's own exposure measure it does not
+                  always beat the baselines: F5 only edits non-zero AC coefficients, which are already the
+                  cheap textured ones, so its <em>per-change</em> average can be lower while it makes far
+                  more changes. The panel reports the ordering it measured for your run. This is an
                   educational tool, not suitable for adversarial environments.</li>
               </ul>
             </div>

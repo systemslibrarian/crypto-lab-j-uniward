@@ -22,6 +22,20 @@
  * histogram tests barely separate DCT-domain methods at low payloads, and would
  * misleadingly rank a method that makes fewer ±1 changes as "safer" regardless
  * of where they land. Placement is the honest, discriminating signal.
+ *
+ * **What mean exposure does not say.** It is a per-change average, so it is blind
+ * to how MANY changes a method made. F5 only ever edits non-zero AC coefficients,
+ * and non-zero ACs are exactly the cheap, textured ones — so F5's per-change
+ * average beats J-UNIWARD's on covers where J-UNIWARD's carrier pool (every AC,
+ * zeros included) forces some spend in flatter blocks, even while F5 makes 2–3×
+ * as many changes and leaves a shrinkage tell J-UNIWARD does not. Measured on the
+ * three bundled covers, F5's mean exposure is lower than J-UNIWARD's in 13 of 15
+ * (cover, rate) states, including the shipped default 0.10 bpnzac on
+ * sample-grass (J-UNIWARD 7.1%, F5 4.5%).
+ *
+ * That is why nothing here or in the panel asserts a winner: the ordering is
+ * computed from the run and displayed alongside the change counts and the summed
+ * distortion, which is the quantity J-UNIWARD actually minimises.
  */
 
 import { forwardDCTQuantize } from '../codec/JpegCodec.ts';
@@ -36,7 +50,7 @@ export function lsbEmbed(
   pixels:   Float32Array,
   payload:  Uint8Array,
   bitCount: number,
-): Float32Array {
+): { modified: Float32Array; bitsEmbedded: number } {
   const out = new Float32Array(pixels);
   let bi = 0;
   for (let i = 0; i < out.length && bi < bitCount; i++) {
@@ -47,7 +61,7 @@ export function lsbEmbed(
     out[i] = (pv & ~1) | bit;
     bi++;
   }
-  return out;
+  return { modified: out, bitsEmbedded: bi };
 }
 
 // ─── F5 embedding (sequential DCT with shrinkage) ────────────────────────────
@@ -140,15 +154,35 @@ function buildCostRanker(costs: Float64Array[]): (c: number) => number {
  * Compare a method's modified coefficients against the cover and score *where*
  * its changes landed relative to the J-UNIWARD cost map.
  */
+/**
+ * `structHits` counts DC-term edits and edits to coefficients the cost map marked
+ * wet. Only the DC term is ever actually wet here — `WaveletCost` assigns 1e8 to
+ * zigzag 0 and a finite computed cost to every AC — so this counter answers
+ * exactly one question: *did the method touch the flat-brightness term?* It is
+ * NOT a measure of "landed in a flat region", and must not be reported as one:
+ * measured across the three bundled covers, 0 of 64,512 AC coefficients per image
+ * reach the 1e7 threshold, so for any DCT-domain method (F5, J-UNIWARD) it is
+ * structurally pinned at 0. The question it used to be captioned with — did the
+ * method put changes in smooth, costly coefficients? — is answered by
+ * `topDecileChanges`, which is measured against this image's own cost
+ * distribution and therefore can actually fire.
+ */
 function analysePlacement(
   origCoeffs: Int16Array[],
   modCoeffs:  Int16Array[],
   costs:      Float64Array[],
   rank:       (c: number) => number,
-): { changesCount: number; structHits: number; meanExposure: number; changedBlocks: Uint8Array } {
+): {
+  changesCount: number; structHits: number; meanExposure: number;
+  topDecileChanges: number; maxExposure: number; totalDistortion: number;
+  changedBlocks: Uint8Array;
+} {
   let changesCount = 0; // AC, embeddable
   let structHits   = 0; // DC or wet-coefficient modifications (structurally conspicuous)
   let exposureSum  = 0;
+  let topDecileChanges = 0; // AC changes landing in the costliest 10% of this image
+  let maxExposure  = 0;
+  let totalDistortion = 0;
   const changedBlocks = new Uint8Array(origCoeffs.length); // 0=none, 1=textured change, 2=structural
 
   for (let bi = 0; bi < origCoeffs.length; bi++) {
@@ -159,14 +193,21 @@ function analysePlacement(
       if (zi === 0) { structHits++; changedBlocks[bi] = 2; continue; } // DC term — maximally conspicuous
       const c = costs[bi][zi];
       if (!isFinite(c) || c >= WET) { structHits++; if (changedBlocks[bi] !== 2) changedBlocks[bi] = 2; continue; }
-      exposureSum += rank(c);
+      const pct = rank(c);
+      exposureSum += pct;
+      if (pct >= 0.9) topDecileChanges++;
+      if (pct > maxExposure) maxExposure = pct;
+      totalDistortion += c;
       changesCount++;
       if (changedBlocks[bi] === 0) changedBlocks[bi] = 1;
     }
   }
 
   const meanExposure = changesCount > 0 ? exposureSum / changesCount : 0;
-  return { changesCount, structHits, meanExposure, changedBlocks };
+  return {
+    changesCount, structHits, meanExposure,
+    topDecileChanges, maxExposure, totalDistortion, changedBlocks,
+  };
 }
 
 // ─── Detectability label ──────────────────────────────────────────────────────
@@ -271,10 +312,24 @@ export interface MethodStats {
   changesCount: number;
   /** Non-DC AC coefficients available. */
   totalCoeffs: number;
-  /** DC / flat (wet) coefficients modified — structurally conspicuous edits. */
+  /** DC (and wet) coefficients modified — see analysePlacement: in practice, DC only. */
   structHits: number;
   /** Mean cost-percentile of changes (0 = textured/hidden, 1 = smooth/exposed). */
   meanExposure: number;
+  /** AC changes landing in the costliest decile of THIS image's cost distribution. */
+  topDecileChanges: number;
+  /** Highest cost-percentile any single change landed on. */
+  maxExposure: number;
+  /** Sum of the J-UNIWARD cost of every AC change — the objective itself. */
+  totalDistortion: number;
+  /** Payload bits this method was asked to carry. */
+  bitsRequested: number;
+  /**
+   * Payload bits it actually carried. F5 runs out of non-zero AC coefficients and
+   * LSB runs out of pixels; when this is below `bitsRequested` the method is NOT
+   * comparable with the others and the panel must say so.
+   */
+  bitsEmbedded: number;
   /** Per-block change flag: 0 = none, 1 = textured AC change, 2 = DC/flat (structural) change. */
   changedBlocks: Uint8Array;
   label: DetectLabel;
@@ -314,12 +369,12 @@ export function runAnalysis(
   const totalCoeffs = origCoeffs.length * 63; // non-DC ACs
 
   // ---- LSB: edit spatial pixels, then honestly re-transform to the DCT domain
-  const lsbPixels = lsbEmbed(origPixels, payload, bitCount);
+  const { modified: lsbPixels, bitsEmbedded: lsbBits } = lsbEmbed(origPixels, payload, bitCount);
   const lsbCoeffs = forwardDCTQuantize(lsbPixels, quantTable, blocksWide, blocksHigh);
   const lsbP = analysePlacement(origCoeffs, lsbCoeffs, costs, rank);
 
   // ---- F5: sequential non-zero AC embedding with shrinkage
-  const { modified: f5Coeffs } = f5Embed(origCoeffs, payload, bitCount);
+  const { modified: f5Coeffs, bitsEmbedded: f5Bits } = f5Embed(origCoeffs, payload, bitCount);
   const f5P = analysePlacement(origCoeffs, f5Coeffs, costs, rank);
 
   // ---- J-UNIWARD: adaptive STC placement (already embedded)
@@ -330,6 +385,8 @@ export function runAnalysis(
       name: 'LSB (spatial)',
       dctHist: dctHistogram(lsbCoeffs),
       totalCoeffs,
+      bitsRequested: bitCount,
+      bitsEmbedded: lsbBits,
       ...lsbP,
       label: detectabilityLabel(lsbP.meanExposure, lsbP.structHits, lsbP.changesCount),
     },
@@ -337,6 +394,8 @@ export function runAnalysis(
       name: 'F5 (DCT sequential)',
       dctHist: dctHistogram(f5Coeffs),
       totalCoeffs,
+      bitsRequested: bitCount,
+      bitsEmbedded: f5Bits,
       ...f5P,
       label: detectabilityLabel(f5P.meanExposure, f5P.structHits, f5P.changesCount),
     },
@@ -344,6 +403,11 @@ export function runAnalysis(
       name: 'J-UNIWARD (adaptive)',
       dctHist: dctHistogram(juniwCoeffs),
       totalCoeffs,
+      // The caller only reaches this function after `embed()` returned, and
+      // `embed()` refuses rather than truncating — so J-UNIWARD always carried
+      // the whole payload. It is the baseline the other two are measured against.
+      bitsRequested: bitCount,
+      bitsEmbedded: bitCount,
       ...juwP,
       label: detectabilityLabel(juwP.meanExposure, juwP.structHits, juwP.changesCount),
     },

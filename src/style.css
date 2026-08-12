@@ -1202,6 +1202,25 @@ button, [role='button'], [role='tab'], input[type='checkbox'], .method-tab, .pre
   color: var(--text-secondary);
   font-style: italic;
 }
+/* A method that could not carry the whole payload is not comparable with the
+   others — this has to read as a warning, not as one more italic aside. */
+.shortfall-note {
+  font-style: normal;
+  color: var(--error-text);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-sm);
+}
+.ordering-note {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm);
+  color: var(--text-secondary);
+  background-color: var(--bg-panel);
+  border-left: 3px solid var(--accent-color, var(--text-secondary));
+  border-radius: var(--radius-sm);
+}
+.ordering-note strong { color: var(--text-primary); }
 
 /* ─── STC / Viterbi walkthrough ──────────────────────────────────────────── */
 

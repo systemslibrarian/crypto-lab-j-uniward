@@ -519,7 +519,8 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   // The steganalysis panel replaces its explainer with the real comparison.
   await expect(page.locator('#analysis-explainer')).toBeHidden();
   await expect(page.locator('#stats-container .bar-row')).toHaveCount(3);
-  await expect(page.locator('#stats-container .stat-card')).toHaveCount(3);
+  // Detectability, coefficients changed, DC terms hit, costliest-decile changes.
+  await expect(page.locator('#stats-container .stat-card')).toHaveCount(4);
   await expect(page.locator('#hist-canvas')).toBeVisible();
   await scanAt('embedded, three-way comparison rendered');
 

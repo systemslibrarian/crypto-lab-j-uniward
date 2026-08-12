@@ -112,24 +112,43 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
       <span class="bar-value" style="color:${color};">${valDisplay}</span>
       <span class="bar-badge" style="color:${color};">${s.label}</span>
     </div>
+    ${shortfallNote(s)}
     <p class="detector-note text-xs">What a real detector would see: ${detectorNote(m.key)}</p>`;
   }
 
   html += `<p class="text-muted text-xs">Lower exposure = changes hidden in texture = harder to detect —
-    but this is where changes <em>land</em>, not the output of an SRM/SRNet detector.</p></div>`;
+    but this is where changes <em>land</em>, not the output of an SRM/SRNet detector.</p>
+    ${orderingNote(state.analysisResult)}
+    </div>`;
 
   // ── Active-method detail ──
   const s: MethodStats = state.analysisResult[method];
   const cls = labelClass(s.label);
+  // `structHits` can only ever count the DC term: WaveletCost marks zigzag 0 wet
+  // (1e8) and gives every AC a finite cost far below the 1e7 threshold, so a
+  // DCT-domain method is pinned at 0 by construction. Label it for what it counts.
   const structRow = s.structHits > 0
     ? `<div class="stat-card">
-         <span class="stat-label">DC / flat coefficients hit</span>
+         <span class="stat-label">DC (flat-brightness) terms hit</span>
          <span class="stat-value detect">${s.structHits.toLocaleString()}</span>
        </div>`
     : `<div class="stat-card">
-         <span class="stat-label">DC / flat coefficients hit</span>
-         <span class="stat-value resist">0 — structure preserved</span>
+         <span class="stat-label">DC (flat-brightness) terms hit</span>
+         <span class="stat-value resist">0 — block brightness untouched</span>
        </div>`;
+
+  // The live replacement for the old "flat coefficients hit" claim: how many of
+  // this method's changes landed in the costliest decile of THIS image's own cost
+  // distribution. Unlike structHits it can, and does, fire.
+  const smoothRow = `<div class="stat-card">
+      <span class="stat-label">Changes in the costliest 10% of coefficients</span>
+      <span class="stat-value ${s.topDecileChanges > 0 ? 'detect' : 'resist'}">${
+        s.changesCount === 0
+          ? '—'
+          : `${s.topDecileChanges.toLocaleString()} of ${s.changesCount.toLocaleString()} ` +
+            `(worst landed at the ${(s.maxExposure * 100).toFixed(0)}th percentile)`
+      }</span>
+    </div>`;
 
   html += `
     <div class="stats-grid">
@@ -142,10 +161,11 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
         <span class="stat-value">${s.changesCount.toLocaleString()} / ${s.totalCoeffs.toLocaleString()}</span>
       </div>
       ${structRow}
+      ${smoothRow}
     </div>
 
     <div class="method-explanation">
-      ${methodExplanation(method)}
+      ${methodExplanation(method, s, state.analysisResult)}
     </div>
 
     <div class="hist-wrap">
@@ -210,7 +230,69 @@ function detectorNote(method: 'lsb' | 'f5' | 'juniward'): string {
   }
 }
 
-function methodExplanation(method: 'lsb' | 'f5' | 'juniward'): string {
+/**
+ * A method that could not carry the whole payload is not comparable with one that
+ * did — its exposure average is taken over a smaller, easier set of changes.
+ * `f5Embed` returns `bitsEmbedded` and this used to be discarded: on the bundled
+ * sample-smooth cover F5 carries 163 of 216–520 requested bits (it exhausts the
+ * non-zero ACs) and its 3% "Resistant" bar was shown beside J-UNIWARD's without
+ * a word. Say so, at the bar.
+ */
+function shortfallNote(s: MethodStats): string {
+  if (s.bitsEmbedded >= s.bitsRequested) return '';
+  const pct = ((s.bitsEmbedded / s.bitsRequested) * 100).toFixed(0);
+  return `<p class="detector-note text-xs shortfall-note" role="note"><strong>Comparison invalid:</strong>
+    this method carried only ${s.bitsEmbedded.toLocaleString()} of the
+    ${s.bitsRequested.toLocaleString()} requested payload bits (${pct}%) — it ran out of usable
+    carriers. Its exposure is averaged over a smaller payload than J-UNIWARD's and cannot be
+    read against the others.</p>`;
+}
+
+/**
+ * Which method actually placed its changes most cheaply — computed from this run,
+ * not asserted. J-UNIWARD does NOT always win: measured across the three bundled
+ * covers, F5's per-change average is lower in 13 of 15 (cover, rate) states,
+ * because F5 only edits non-zero ACs and those are already the cheap ones. The
+ * counterweight — how many changes each method made, and the summed distortion
+ * that is J-UNIWARD's actual objective — is printed alongside so the ordering is
+ * readable rather than misleading.
+ */
+function orderingNote(r: NonNullable<typeof state.analysisResult>): string {
+  const rows = [
+    { label: 'LSB', s: r.lsb },
+    { label: 'F5', s: r.f5 },
+    { label: 'J-UNIWARD', s: r.juniward },
+  ].filter(x => x.s.changesCount > 0 && x.s.bitsEmbedded >= x.s.bitsRequested);
+
+  if (rows.length < 2) {
+    return `<p class="ordering-note text-xs" role="note">Not enough comparable methods at this
+      payload to rank them — see the notes above.</p>`;
+  }
+
+  const byExposure = [...rows].sort((a, b) => a.s.meanExposure - b.s.meanExposure);
+  const byDistortion = [...rows].sort((a, b) => a.s.totalDistortion - b.s.totalDistortion);
+  const cheapest = byExposure[0];
+  const lowestTotal = byDistortion[0];
+
+  const counts = rows
+    .map(x => `${x.label} ${x.s.changesCount.toLocaleString()}`)
+    .join(' · ');
+
+  return `<p class="ordering-note text-xs" role="note">
+    <strong>In this run:</strong> ${cheapest.label} has the lowest per-change exposure
+    (${(cheapest.s.meanExposure * 100).toFixed(1)}%), and ${lowestTotal.label} has the lowest
+    <em>total</em> distortion — the sum J-UNIWARD's coder actually minimises
+    (${lowestTotal.s.totalDistortion.toExponential(2)}). Changes made: ${counts}.
+    A per-change average says nothing about how many changes there were, so read the two
+    together: F5 only ever edits non-zero AC coefficients, which are already the cheap textured
+    ones, so it can win the average while making far more edits and leaving a shrinkage tell.</p>`;
+}
+
+function methodExplanation(
+  method: 'lsb' | 'f5' | 'juniward',
+  s: MethodStats,
+  all: NonNullable<typeof state.analysisResult>,
+): string {
   switch (method) {
     case 'lsb':
       return `<p class="explain-text"><strong>LSB (spatial)</strong> flips the least-significant bit of pixel values,
@@ -222,10 +304,33 @@ function methodExplanation(method: 'lsb' | 'f5' | 'juniward'): string {
       which already cluster in busy regions — so it gets a crude texture bias for free and beats LSB.
       But it uses no explicit cost, fills coefficients in scan order, and its magnitude-decrement
       <em>shrinkage</em> leaves a tell-tale histogram signature (visible above).</p>`;
-    case 'juniward':
+    case 'juniward': {
+      // Both sentences here used to be asserted: "At low payloads its exposure is
+      // the lowest of the three" and "It never touches DC or flat regions". The
+      // first is false on 13 of 15 measured (cover, rate) states, including the
+      // shipped default; the second is contradicted by this run's own worst
+      // placement whenever the payload pushes past the cheap coefficients. Both
+      // are now read off the run.
+      const beats = (['lsb', 'f5'] as const)
+        .filter(k => all[k].changesCount > 0
+          && all[k].bitsEmbedded >= all[k].bitsRequested
+          && all[k].meanExposure < s.meanExposure)
+        .map(k => (k === 'lsb' ? 'LSB' : 'F5'));
+      const rankSentence = beats.length === 0
+        ? `In this run its per-change exposure (${(s.meanExposure * 100).toFixed(1)}%) is the lowest of the three.`
+        : `In this run its per-change exposure is ${(s.meanExposure * 100).toFixed(1)}% — higher than
+           ${beats.join(' and ')}, because its carrier pool is <em>every</em> AC coefficient, zeros
+           included, so satisfying each 12-bit syndrome block sometimes costs a flatter coefficient
+           than ${beats.length > 1 ? 'those methods' : 'that method'} would ever visit.`;
+      const flatSentence = s.topDecileChanges === 0
+        ? `It never touches the DC term, and no change in this run landed in the costliest decile
+           (worst: ${(s.maxExposure * 100).toFixed(0)}th percentile).`
+        : `It never touches the DC term, but ${s.topDecileChanges.toLocaleString()} of its
+           ${s.changesCount.toLocaleString()} changes landed in the costliest decile of this image
+           (worst: ${(s.maxExposure * 100).toFixed(0)}th percentile) — "adaptive" is a budget, not a guarantee.`;
       return `<p class="explain-text"><strong>J-UNIWARD (adaptive)</strong> scores every coefficient by how much a ±1 change
       disturbs a Daubechies-8 wavelet decomposition, then uses STC (h=12) to place the payload in the
-      cheapest — most textured — coefficients. At low payloads its exposure is the lowest of the three.
-      It never touches DC or flat regions.</p>`;
+      cheapest coefficients it can reach. ${rankSentence} ${flatSentence}</p>`;
+    }
   }
 }

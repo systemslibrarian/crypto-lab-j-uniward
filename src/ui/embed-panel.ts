@@ -3,7 +3,7 @@
  */
 
 import { state, resetEmbedState } from '../state/app-state.ts';
-import { embed, countNZAC, capacityBytes } from '../steg/Embedder.ts';
+import { embed, countNZAC, capacityBytes, usableCapacityBytes, ENVELOPE_BYTES } from '../steg/Embedder.ts';
 import { encode, decode } from '../codec/JpegCodec.ts';
 import { drawImageOnCanvas, renderDiffMap, showAlert } from './renderers.ts';
 import { runAnalysis } from '../analysis/StegAnalysis.ts';
@@ -70,9 +70,15 @@ function updateCharCount(): void {
   if (state.decoded && state.costs) {
     const nzac = countNZAC(state.decoded.dctCoeffs);
     const rate = parseFloat(rateSlider.value);
-    const cap  = Math.floor((nzac * rate) / 8) - 20; // subtract header + HMAC
+    // One definition, shared with the capacity table and the button's refusal —
+    // and floored at zero, because a cover whose bpnzac budget is smaller than the
+    // 20-byte envelope used to print "(-7 bytes at current rate)".
+    const cap  = usableCapacityBytes(nzac, rate);
     if (bytes > cap) {
-      capacityWarn.textContent = `⚠ Message exceeds capacity (${cap} bytes at current rate)`;
+      capacityWarn.textContent = cap === 0
+        ? `⚠ This cover holds no message at ${rate.toFixed(2)} bpnzac — its budget is smaller than the `
+          + `${ENVELOPE_BYTES}-byte header + MAC envelope. Raise the rate or use a busier image.`
+        : `⚠ Message exceeds capacity (${cap} bytes at current rate)`;
       capacityWarn.className = 'alert alert-error';
       capacityWarn.classList.remove('hidden');
     } else if (bytes > cap * 0.8) {
@@ -169,12 +175,12 @@ embedBtn.addEventListener('click', async () => {
   // (the whole parameter this lab is about) while the banner said it was
   // impossible. Two surfaces, one run: refuse, and name the budget.
   const msgBytesIn = new TextEncoder().encode(message).length;
-  const capacity   = capacityBytes(countNZAC(state.decoded.dctCoeffs), rate) - 20;
+  const capacity   = usableCapacityBytes(countNZAC(state.decoded.dctCoeffs), rate);
   if (msgBytesIn > capacity) {
     showAlert(
       embedStatus,
       `Message is ${msgBytesIn} bytes but capacity at ${rate.toFixed(2)} bpnzac is ${capacity} bytes ` +
-      '(after the 4-byte header and 16-byte MAC). Shorten the message or raise the embedding rate.',
+      `(after the 4-byte header and ${ENVELOPE_BYTES - 4}-byte MAC). Shorten the message or raise the embedding rate.`,
       'error',
     );
     return;
@@ -248,8 +254,9 @@ embedBtn.addEventListener('click', async () => {
           <span class="summary-value">${result.actualRate.toFixed(4)} bpnzac</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">Carriers used</span>
-          <span class="summary-value">${result.carriersUsed.toLocaleString()} / ${result.nzac.toLocaleString()} NZAC</span>
+          <span class="summary-label">Carriers examined</span>
+          <span class="summary-value">${result.carriersUsed.toLocaleString()} / ${result.carrierPool.toLocaleString()} AC coefficients
+            <span class="text-muted">(${result.nzac.toLocaleString()} of the pool are non-zero — the bpnzac denominator)</span></span>
         </div>
         <div class="summary-item">
           <span class="summary-label">Coefficients changed</span>

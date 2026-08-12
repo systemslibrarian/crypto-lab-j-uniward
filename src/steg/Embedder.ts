@@ -68,11 +68,36 @@ export function capacityBytes(nzac: number, rate: number): number {
   return Math.floor((nzac * rate) / 8);
 }
 
+/**
+ * Every payload carries a 4-byte big-endian length header and a 16-byte truncated
+ * HMAC tag, so the message itself never gets the whole bpnzac budget.
+ */
+export const ENVELOPE_BYTES = 20;
+
+/**
+ * Bytes of *message* the Embed button will accept at this rate — the single
+ * definition behind the capacity table, the warning banner and the button's own
+ * refusal. Clamped at zero: the raw subtraction goes negative on low-NZAC covers
+ * (the bundled smooth sample yields -7 at the shipped 0.10 default) and a
+ * negative byte count was being printed to the user.
+ */
+export function usableCapacityBytes(nzac: number, rate: number): number {
+  return Math.max(0, capacityBytes(nzac, rate) - ENVELOPE_BYTES);
+}
+
 // ─── Main embed function ─────────────────────────────────────────────────────
 
 export interface EmbedResult {
   modifiedCoeffs: Int16Array[];
   carriersUsed: number;
+  /**
+   * Size of the structural carrier pool the permutation draws from: every non-DC
+   * AC coefficient, zeros included (63 × luma blocks). This — not `nzac` — is the
+   * denominator `carriersUsed` belongs over. The summary card used to print
+   * "carriers used / NZAC", and at capacity with rate 0.40 that reads
+   * "3,510 / 3,501 NZAC": more carriers than the thing they were counted against.
+   */
+  carrierPool: number;
   nzac: number;
   actualRate: number;
   totalDistortion: number;
@@ -208,6 +233,7 @@ export async function embed(
   return {
     modifiedCoeffs: modified,
     carriersUsed: n,
+    carrierPool: allCarriers.length,
     nzac,
     actualRate: m / nzac,
     totalDistortion,
