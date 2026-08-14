@@ -325,7 +325,14 @@ function parseJpeg(buffer: ArrayBuffer): ParsedJpeg {
       case M_SOF0:
       case M_SOF1: {
         sofMarker = marker;
-        /* precision = raw[i] */ // usually 8
+        // SOF1 (extended sequential) permits 12-bit samples. Every downstream
+        // buffer here is sized for 8-bit baseline ranges (Int16 coefficients,
+        // category tables), so anything else must be refused up front rather
+        // than mis-decoded.
+        const precision = raw[i];
+        if (precision !== 8) {
+          throw new Error(`Unsupported JPEG: ${precision}-bit sample precision (only 8-bit baseline/extended sequential is supported)`);
+        }
         height = u16be(raw, i + 1);
         width  = u16be(raw, i + 3);
         const nComp = raw[i + 5];
@@ -367,6 +374,16 @@ function parseJpeg(buffer: ArrayBuffer): ParsedJpeg {
         break;
       case M_SOS: {
         const nScan = raw[i];
+        // This decoder reconstructs exactly one interleaved scan. A sequential
+        // JPEG whose first scan carries fewer components than the frame declares
+        // stores them non-interleaved (one block per MCU, different geometry),
+        // which this loop would mis-decode into garbage coefficients.
+        if (nScan !== components.length) {
+          throw new Error(
+            `Unsupported JPEG: first scan covers ${nScan} of ${components.length} components ` +
+            '(non-interleaved or multi-scan sequential JPEGs are not supported)',
+          );
+        }
         for (let c = 0; c < nScan; c++) {
           const cid = raw[i + 1 + c * 2];
           const tbl = raw[i + 2 + c * 2];
@@ -402,6 +419,17 @@ function parseJpeg(buffer: ArrayBuffer): ParsedJpeg {
       }
     }
     if (eoiOffset < 0) throw new Error('No EOI marker found');
+  }
+
+  // Within a single scan the only unescaped 0xFF sequences are stuffed FF 00
+  // and restart markers FF D0-D7, so a literal FF DA before EOI means a second
+  // SOS header: a multi-scan sequential JPEG. Decoding would read that header
+  // as entropy data, and the encoder below would discard the later scans and
+  // emit a corrupt file — so refuse before decoding anything.
+  for (let j = entropyStart; j < eoiOffset - 1; j++) {
+    if (raw[j] === 0xff && raw[j + 1] === (M_SOS & 0xff)) {
+      throw new Error('Unsupported JPEG: multiple scans detected (only single-scan sequential JPEGs are supported)');
+    }
   }
 
   // ─── Decode entropy data ────────────────────────────────────────────────────
@@ -685,6 +713,17 @@ function encodeEntropy(parsed: ParsedJpeg, newDctBlocks: Int16Array[][]): Uint8A
 
   function huffEncode(ht: HuffTable, sym: number): void {
     const len = ht.encLen[sym];
+    // Optimized-Huffman JPEGs only define codes for symbols that occurred in the
+    // original entropy stream. A ±1 coefficient change can create a new
+    // (run, size) symbol — or push a coefficient into a magnitude category the
+    // table never needed. `encLen` is 0 for such symbols, and writeBits(code, 0)
+    // would silently emit nothing, producing a corrupt JPEG. Fail closed instead.
+    if (len === 0) {
+      throw new Error(
+        `Cannot re-encode JPEG: the source Huffman table has no code for symbol 0x${sym.toString(16)}. ` +
+        'The modified coefficients need an entropy symbol the original (likely optimized-Huffman) file never used.',
+      );
+    }
     const code = ht.encCode[sym];
     writer.writeBits(code, len);
   }

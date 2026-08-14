@@ -360,7 +360,7 @@ test('embed verdict, summary and steganalysis all describe the same run', async 
   );
   expect(rows.map((r) => r.label)).toEqual(['LSB', 'F5', 'J-UNIWARD']);
   for (const row of rows) {
-    expect(row.badge, `${row.label} label`).toMatch(/Resistant|Moderate|Detectable|Negligible/);
+    expect(row.badge, `${row.label} label`).toMatch(/Low|Medium|High|Negligible/);
     if (row.badge !== 'Negligible') {
       const pct = Number(row.value.replace('%', ''));
       expect(pct, `${row.label} exposure`).toBeGreaterThanOrEqual(0);
@@ -438,7 +438,7 @@ test('embed verdict, summary and steganalysis all describe the same run', async 
  * Regression: `runAnalysis` computed `f5Embed().bitsEmbedded` and threw it away.
  * On the bundled smooth cover F5 exhausts the non-zero AC coefficients and carries
  * 163 of the 216–520 requested bits (75% down to 31% as the rate rises), yet its
- * exposure bar — 3.3%, badged "Resistant" — was drawn beside J-UNIWARD's under an
+ * exposure bar — 3.3%, badged "Low" — was drawn beside J-UNIWARD's under an
  * explainer promising "the same payload across all three methods".
  *
  * The test hunts the bundled covers for one where a method comes up short and

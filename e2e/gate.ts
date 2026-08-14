@@ -25,8 +25,8 @@ export const NARROW = { width: 380, height: 800 };
  *     three-way exposure bars, the stats grid and the DCT histogram will go.
  *     The headline claim — the same payload, placed three ways, with
  *     J-UNIWARD's changes sitting lowest on the cost terrain — is four
- *     interactions deep, and every colour that carries it (the Resistant /
- *     Moderate / Detectable inks, the badge tints, the F5 shrinkage callout)
+ *     interactions deep, and every colour that carries it (the low / medium /
+ *     high objective-exposure inks, the badge tints, the F5 shrinkage callout)
  *     exists only in that state.
  *
  *  3. `violations` IS NOT THE WHOLE ORACLE. See `scan`.
@@ -386,7 +386,7 @@ export async function scan(page: Page, label: string): Promise<void> {
  *   - a second, deliberately smooth sample, whose suitability row renders
  *     `badge-risky` where the textured one renders `badge-safe`;
  *   - each of the three steganalysis methods, because the F5 pane is the only
- *     one carrying the shrinkage callout and the three Detectability inks
+ *     one carrying the shrinkage callout and the three objective-exposure inks
  *     (`.resist` / `.moderate` / `.detect`) are separate colours;
  *   - the glossary bubble and the change-exposure tooltip, both of which are
  *     `display: none` until focused.
@@ -519,7 +519,7 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   // The steganalysis panel replaces its explainer with the real comparison.
   await expect(page.locator('#analysis-explainer')).toBeHidden();
   await expect(page.locator('#stats-container .bar-row')).toHaveCount(3);
-  // Detectability, coefficients changed, DC terms hit, costliest-decile changes.
+  // Objective exposure, coefficients changed, DC terms hit, costliest-decile changes.
   await expect(page.locator('#stats-container .stat-card')).toHaveCount(4);
   await expect(page.locator('#hist-canvas')).toBeVisible();
   await scanAt('embedded, three-way comparison rendered');
@@ -539,7 +539,7 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   await page.locator('#panel-c-heading').click();
 
   // ── Each method's pane ────────────────────────────────────────────────────
-  // The Detectability ink differs per method (`.resist` / `.moderate` /
+  // The objective-exposure ink differs per method (`.resist` / `.moderate` /
   // `.detect`), and only the F5 pane carries the shrinkage callout.
   for (const method of ['lsb', 'f5', 'juniward'] as const) {
     await page.locator(`.method-tab[data-method="${method}"]`).click();

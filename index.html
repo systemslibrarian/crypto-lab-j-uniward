@@ -419,11 +419,12 @@
                     embedding reduces but does not eliminate.</dd>
                   <dt><span data-term="dct">DCT</span> histogram</dt>
                   <dd>The coefficient distribution. F5's magnitude-<span data-term="shrinkage">shrinkage</span> leaves a visible histogram signature.</dd>
-                  <dt>Detectability label</dt>
-                  <dd>A rating derived from placement alone — "Resistant" through "Detectable" — not from a
-                    trained detector. All three methods are asked for the same payload; when one cannot
-                    carry it (F5 runs out of non-zero coefficients on smooth covers) the panel marks its
-                    comparison invalid rather than ranking it anyway.</dd>
+                  <dt>Objective exposure</dt>
+                  <dd>A low/medium/high band for how much each method's changes are exposed to
+                    J-UNIWARD's own cost objective — derived from placement alone, not from a trained
+                    detector, so it is not a detectability verdict. All three methods are asked for the
+                    same payload; when one cannot carry it (F5 runs out of non-zero coefficients on
+                    smooth covers) the panel marks its comparison invalid rather than ranking it anyway.</dd>
                 </dl>
                 <p class="text-muted text-xs">Embed a message to compare all three methods on the same image and payload.</p>
               </div>
@@ -520,6 +521,10 @@
                 <li>The COM marker sideband for salt/rate may be stripped by image pipelines,
                   social media compression, or metadata-stripping tools. It also makes any file this demo
                   produces trivially identifiable as one — it is a teaching sideband, not a covert one.</li>
+                <li>This is fragile steganography, not robust watermarking. The payload lives in the exact
+                  DCT coefficients, so recompression, quality-factor changes, resizing, cropping, rotation,
+                  or lossless JPEG optimization will alter the coefficients and break extraction — the
+                  recipient generally needs the original stego JPEG bytes.</li>
                 <li>J-UNIWARD is not "undetectable," and on this lab's own exposure measure it does not
                   always beat the baselines: F5 only edits non-zero AC coefficients, which are already the
                   cheap textured ones, so its <em>per-change</em> average can be lower while it makes far

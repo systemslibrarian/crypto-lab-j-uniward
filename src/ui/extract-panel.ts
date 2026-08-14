@@ -4,7 +4,6 @@
 
 import { state } from '../state/app-state.ts';
 import { decode, type JpegDecoded } from '../codec/JpegCodec.ts';
-import { computeCostMatrix } from '../steg/WaveletCost.ts';
 import { extract } from '../steg/Extractor.ts';
 import { showAlert } from './renderers.ts';
 
@@ -144,11 +143,10 @@ extractBtn.addEventListener('click', async () => {
     extractBtn.disabled = true;
     extractBtn.innerHTML = '<span class="spinner"></span> Extracting…';
 
-    const bW = stegoD.lumaBlocksWide;
-    const bH = stegoD.lumaBlocksHigh;
-    const stegoCosts = await computeCostMatrix(stegoD.lumaPixels, stegoD.quantTable, bW, bH);
-
-    const result = await extract(stegoD.dctCoeffs, stegoD.quantTable, stegoCosts, key, extractSalt, extractRate, extractMsgLen);
+    // Extraction reads coefficient LSBs over the keyed permutation of the
+    // structural carrier pool — it does not need the stego cost map, so none is
+    // computed here (that recompute was a false dependency; see Extractor).
+    const result = await extract(stegoD.dctCoeffs, key, extractSalt, extractRate, extractMsgLen);
     showAlert(extractOutput,
       `✓ Recovered (${result.bytesRecovered} bytes):<br><br><code class="extract-msg">${escapeHtml(result.message)}</code>`,
       'success',

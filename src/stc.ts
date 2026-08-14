@@ -44,6 +44,28 @@ export async function stcEmbed(
   if (w <= H) throw new Error(`w=${w} must be > H=${H}`);
 
   const hatMatrix = await buildHatMatrix(hatKey, w);
+  return stcEmbedWithMatrix(hatMatrix, coverBits, rho, messageBits);
+}
+
+/**
+ * The Viterbi search proper, over an already-built hat matrix. Split out so the
+ * unreachable-syndrome path can be exercised in tests with a deliberately
+ * rank-deficient matrix — `buildHatMatrix` rejection-samples non-zero columns,
+ * but non-zero does not imply the w columns span GF(2)^12. When they do not,
+ * roughly half the syndromes per deficient dimension are unreachable, and the
+ * traceback would previously walk default-initialised `fwdFrom`/`fwdFlip`
+ * entries and return a change vector that encodes the WRONG message: the stego
+ * file would fail HMAC on extraction even with the correct key, silently.
+ */
+export function stcEmbedWithMatrix(
+  hatMatrix:   Uint32Array,
+  coverBits:   Uint8Array,
+  rho:         Float64Array,
+  messageBits: Uint8Array,
+): { d: Uint8Array } {
+  const n = coverBits.length;
+  const m = messageBits.length;
+  const w = hatMatrix.length;
 
   // Number of full blocks
   const numBlocks = Math.floor(m / H);
@@ -106,6 +128,17 @@ export async function stcEmbed(
       fwdCost.set(nextCost);
     }
 
+    // Reachability: if no flip subset of this block's columns produces the
+    // target syndrome, its forward cost is still INF and the traceback below
+    // would read default (zero) predecessor entries — an arbitrary, wrong
+    // change vector. Fail closed instead; a fresh salt draws a fresh matrix.
+    if (fwdCost[adjTarget] >= INF) {
+      throw new Error(
+        `STC embedding failed: block ${b}'s syndrome is unreachable under the keyed ` +
+        'parity-check matrix (rank-deficient draw). Re-run the embed — a new salt selects a new matrix.',
+      );
+    }
+
     // Traceback from adjTarget
     let state = adjTarget;
     for (let i = w - 1; i >= 0; i--) {
@@ -113,6 +146,18 @@ export async function stcEmbed(
       const flip = fwdFlip[colBase + state];
       if (flip) d[bStart + i] = 1;
       state = fwdFrom[colBase + state];
+    }
+
+    // Postcondition: the stego bits of this block must actually encode the
+    // requested 12 message bits. Cheap (O(w)), and it turns any coding bug —
+    // this one or a future one — into a visible failure instead of a stego
+    // file whose extraction rejects the correct key.
+    let stegoSyn = 0;
+    for (let i = 0; i < w; i++) {
+      if ((coverBits[bStart + i] ^ d[bStart + i]) & 1) stegoSyn ^= hatMatrix[i];
+    }
+    if (stegoSyn !== target) {
+      throw new Error(`STC embedding failed: block ${b} encodes syndrome ${stegoSyn}, expected ${target}.`);
     }
   }
 

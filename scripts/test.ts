@@ -14,6 +14,7 @@ import { computeCostMatrix, computeCostMatrixSlow } from '../src/steg/WaveletCos
 import { embed, selectCarriers, countNZAC, capacityBytes, usableCapacityBytes } from '../src/steg/Embedder.ts';
 import { extract } from '../src/steg/Extractor.ts';
 import { runAnalysis } from '../src/analysis/StegAnalysis.ts';
+import { stcEmbedWithMatrix } from '../src/stc.ts';
 
 let passed = 0, failed = 0;
 function ok(name: string, cond: boolean, detail = '') {
@@ -127,12 +128,12 @@ async function main() {
     const res = await embed(dec.dctCoeffs, dec.quantTable, costs, message, key, 0.15);
     ok('embed reports changes and salt', res.changesCount > 0 && res.salt.length === 16);
 
-    const got = await extract(res.modifiedCoeffs, dec.quantTable, costs, key, res.salt, 0.15, msgLen);
+    const got = await extract(res.modifiedCoeffs, key, res.salt, 0.15, msgLen);
     ok('extracted message matches original', got.message === message, `got "${got.message}"`);
 
     // Wrong key must fail HMAC verification.
     let rejected = false;
-    try { await extract(res.modifiedCoeffs, dec.quantTable, costs, 'wrong key', res.salt, 0.15, msgLen); }
+    try { await extract(res.modifiedCoeffs, 'wrong key', res.salt, 0.15, msgLen); }
     catch { rejected = true; }
     ok('wrong key is rejected by HMAC', rejected);
 
@@ -166,10 +167,9 @@ async function main() {
     stego.set(com, 2);
     stego.set(rawStego.subarray(2), 2 + com.length);
 
-    // Re-decode the stego JPEG and recompute costs from the STEGO image (real extract path).
+    // Re-decode the stego JPEG (real extract path — no cost map needed).
     const sdec = decode(stego.buffer as ArrayBuffer);
-    const scosts = await computeCostMatrix(sdec.lumaPixels, sdec.quantTable, sdec.lumaBlocksWide, sdec.lumaBlocksHigh);
-    const got = await extract(sdec.dctCoeffs, sdec.quantTable, scosts, key, res.salt, rate, msgLen);
+    const got = await extract(sdec.dctCoeffs, key, res.salt, rate, msgLen);
     ok(`${sample}: round-trips through a real JPEG`, got.message === message, `got "${got.message}"`);
   }
 
@@ -202,6 +202,51 @@ async function main() {
     // …and the intact file still decodes, so the bound did not break valid input.
     const dec = loadSample('sample-grass.jpg');
     ok('the intact sample still decodes after the bound was added', dec.blockCount > 0);
+  }
+
+  // ── 4d. A rank-deficient parity-check matrix fails closed, not silently wrong ──
+  //
+  // buildHatMatrix rejection-samples non-zero columns, but non-zero columns can
+  // still fail to span GF(2)^12. When they do, some syndromes are unreachable —
+  // the block's forward cost stays INF — and the traceback used to read default
+  // (zero) predecessor entries and return a change vector encoding the WRONG
+  // message: extraction would then reject the correct key with no explanation.
+  // stcEmbedWithMatrix now checks reachability before traceback and asserts the
+  // produced stego syndrome equals the requested one. Exercise both directly.
+  console.log('\nrank-deficient STC matrix fails closed');
+  {
+    const H = 12, w = 24;
+    const cover = new Uint8Array(w);      // all-zero cover LSBs
+    const rho = new Float64Array(w).fill(1);
+
+    // Deficient: every column is the same single bit, so only syndromes 0 and 1
+    // are reachable. A message whose 12-bit target sets any higher bit cannot be
+    // encoded and must throw rather than fabricate a change vector.
+    const deficient = new Uint32Array(w).fill(1);
+    const msgUnreachable = new Uint8Array(H);
+    msgUnreachable[1] = 1; // target = 0b10 = 2, unreachable from {0,1}
+    let threw = false;
+    try { stcEmbedWithMatrix(deficient, cover, rho, msgUnreachable); }
+    catch { threw = true; }
+    ok('an unreachable syndrome throws instead of returning a wrong change vector', threw);
+
+    // Full-rank: columns cycle through all 12 basis vectors, so every syndrome is
+    // reachable. The internal postcondition asserts the stego syndrome equals the
+    // target, so a clean return is itself the proof of correctness.
+    const fullRank = new Uint32Array(w);
+    for (let i = 0; i < w; i++) fullRank[i] = 1 << (i % H);
+    const msg = new Uint8Array([1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0]);
+    let okEmbed = false;
+    try {
+      const { d } = stcEmbedWithMatrix(fullRank, cover, rho, msg);
+      // Recompute the stego syndrome independently and compare to the target.
+      let syn = 0;
+      for (let i = 0; i < w; i++) if ((cover[i] ^ d[i]) & 1) syn ^= fullRank[i];
+      let target = 0;
+      for (let r = 0; r < H; r++) target |= (msg[r] << r);
+      okEmbed = syn === target;
+    } catch { /* leaves okEmbed false */ }
+    ok('a full-rank matrix encodes exactly the requested syndrome', okEmbed);
   }
 
   // ── 5. Steganalysis reports what it measured ──

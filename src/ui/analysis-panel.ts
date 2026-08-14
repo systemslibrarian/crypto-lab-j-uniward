@@ -9,7 +9,7 @@
 import { state } from '../state/app-state.ts';
 import { renderHistogram } from './renderers.ts';
 import { renderPlacementMap, dctHistogram } from '../analysis/StegAnalysis.ts';
-import type { MethodStats, DetectLabel } from '../analysis/StegAnalysis.ts';
+import type { MethodStats, ExposureBand } from '../analysis/StegAnalysis.ts';
 import { wireGlossary } from './glossary.ts';
 
 const changesCanvas = document.getElementById('changes-canvas') as HTMLCanvasElement;
@@ -47,18 +47,18 @@ methodTabs.forEach(tab => {
 
 // ─── Label → presentation ────────────────────────────────────────────────────
 
-function labelColor(label: DetectLabel): string {
+function labelColor(label: ExposureBand): string {
   switch (label) {
-    case 'Resistant':  return 'var(--success-color)';
-    case 'Moderate':   return 'var(--warning-text)';
-    case 'Detectable': return 'var(--error-text)';
+    case 'Low':        return 'var(--success-color)';
+    case 'Medium':     return 'var(--warning-text)';
+    case 'High':       return 'var(--error-text)';
     case 'Negligible': return 'var(--text-secondary)';
   }
 }
 
-function labelClass(label: DetectLabel): string {
-  return label === 'Resistant' ? 'resist'
-    : label === 'Moderate' ? 'moderate'
+function labelClass(label: ExposureBand): string {
+  return label === 'Low' ? 'resist'
+    : label === 'Medium' ? 'moderate'
     : label === 'Negligible' ? '' : 'detect';
 }
 
@@ -153,7 +153,7 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
   html += `
     <div class="stats-grid">
       <div class="stat-card">
-        <span class="stat-label">Detectability</span>
+        <span class="stat-label">Objective exposure</span>
         <span class="stat-value ${cls}">${s.label}</span>
       </div>
       <div class="stat-card">
@@ -235,8 +235,8 @@ function detectorNote(method: 'lsb' | 'f5' | 'juniward'): string {
  * did — its exposure average is taken over a smaller, easier set of changes.
  * `f5Embed` returns `bitsEmbedded` and this used to be discarded: on the bundled
  * sample-smooth cover F5 carries 163 of 216–520 requested bits (it exhausts the
- * non-zero ACs) and its 3% "Resistant" bar was shown beside J-UNIWARD's without
- * a word. Say so, at the bar.
+ * non-zero ACs) and its 3% "Low"-exposure bar was shown beside J-UNIWARD's
+ * without a word. Say so, at the bar.
  */
 function shortfallNote(s: MethodStats): string {
   if (s.bitsEmbedded >= s.bitsRequested) return '';
@@ -304,7 +304,10 @@ function methodExplanation(
       return `<p class="explain-text"><strong>F5 (DCT sequential)</strong> embeds only in non-zero AC coefficients,
       which already cluster in busy regions — so it gets a crude texture bias for free and beats LSB.
       But it uses no explicit cost, fills coefficients in scan order, and its magnitude-decrement
-      <em>shrinkage</em> leaves a tell-tale histogram signature (visible above).</p>`;
+      <em>shrinkage</em> leaves a tell-tale histogram signature (visible above).
+      This is a <em>sequential shrinkage baseline</em> that isolates that histogram tell; it omits the
+      real F5's two load-bearing ideas — matrix (Hamming) encoding and keyed permutative straddling —
+      so it is not the full F5 algorithm.</p>`;
     case 'juniward': {
       // Both sentences here used to be asserted: "At low payloads its exposure is
       // the lowest of the three" and "It never touches DC or flat regions". The

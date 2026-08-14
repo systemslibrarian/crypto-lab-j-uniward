@@ -9,7 +9,7 @@
 import { deriveSTCKeys } from '../kdf.ts';
 import { stcExtract } from '../stc.ts';
 import { derivePermutation } from '../stc-keys.ts';
-import { selectCarriers } from './Embedder.ts';
+import { carrierDomain } from './Embedder.ts';
 
 export interface ExtractResult {
   message: string;
@@ -28,8 +28,6 @@ export interface ExtractResult {
  * over a different, smaller carrier count than embedding, so it never decoded.)
  *
  * @param dctCoeffs   Luma DCT blocks of the stego JPEG
- * @param quantTable  Luma quantization table (zigzag order)
- * @param costs       Cost matrix from the stego image (used for carrier selection)
  * @param passphrase  Shared secret (must match embed passphrase)
  * @param salt        16-byte salt (read from stego JPEG COM marker)
  * @param rate        Embedding rate used during embed (needed to reconstruct w)
@@ -38,15 +36,16 @@ export interface ExtractResult {
  */
 export async function extract(
   dctCoeffs: Int16Array[],
-  quantTable: Uint16Array,
-  costs: Float64Array[],
   passphrase: string,
   salt: Uint8Array,
   rate: number,
   msgLen: number,
   maxBytes: number = 65536,
 ): Promise<ExtractResult> {
-  const allCarriers = selectCarriers(costs);
+  // Carriers come from the structural block count alone — the stego cost map is
+  // irrelevant to which coefficient each permutation index lands on, so it is no
+  // longer recomputed (see carrierDomain).
+  const allCarriers = carrierDomain(dctCoeffs.length);
 
   // Derive same keys
   const { hatKey, permKey, macKey } = await deriveSTCKeys(passphrase, salt);

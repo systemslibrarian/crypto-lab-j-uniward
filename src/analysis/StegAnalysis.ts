@@ -211,27 +211,33 @@ function analysePlacement(
   };
 }
 
-// ─── Detectability label ──────────────────────────────────────────────────────
+// ─── Objective-exposure band ──────────────────────────────────────────────────
 
-export type DetectLabel = 'Resistant' | 'Moderate' | 'Detectable' | 'Negligible';
+export type ExposureBand = 'Low' | 'Medium' | 'High' | 'Negligible';
 
 /**
- * Qualitative rating from placement. Lower exposure (changes hidden in textured
- * coefficients) is stealthier; modifying DC/flat coefficients is a heavy penalty.
+ * Qualitative band for *where* a method placed its changes on J-UNIWARD's own
+ * cost map — low/medium/high exposure to that objective. This is NOT a
+ * detectability verdict: it grades an algorithm against the very cost function
+ * J-UNIWARD minimises, so it says nothing about a trained steganalyzer's error
+ * rate. It used to return "Resistant"/"Moderate"/"Detectable", which read as a
+ * security claim the placement proxy cannot support. Lower exposure (changes
+ * hidden in textured coefficients) is stealthier; modifying DC/flat
+ * coefficients is a heavy penalty.
  */
-export function detectabilityLabel(
+export function exposureBand(
   meanExposure: number,
   structHits:   number,
   changesCount: number,
-): DetectLabel {
+): ExposureBand {
   if (changesCount === 0 && structHits === 0) return 'Negligible';
   let score = meanExposure * 100;
   if (structHits > 0) {
     score += 15 + Math.min(25, (structHits / (changesCount + structHits)) * 100);
   }
-  if (score < 12) return 'Resistant';
-  if (score < 25) return 'Moderate';
-  return 'Detectable';
+  if (score < 12) return 'Low';
+  if (score < 25) return 'Medium';
+  return 'High';
 }
 
 // ─── Placement map: changes drawn over the cost terrain ──────────────────────
@@ -333,7 +339,7 @@ export interface MethodStats {
   bitsEmbedded: number;
   /** Per-block change flag: 0 = none, 1 = textured AC change, 2 = DC/flat (structural) change. */
   changedBlocks: Uint8Array;
-  label: DetectLabel;
+  label: ExposureBand;
 }
 
 export interface StegAnalysisResult {
@@ -389,7 +395,7 @@ export function runAnalysis(
       bitsRequested: bitCount,
       bitsEmbedded: lsbBits,
       ...lsbP,
-      label: detectabilityLabel(lsbP.meanExposure, lsbP.structHits, lsbP.changesCount),
+      label: exposureBand(lsbP.meanExposure, lsbP.structHits, lsbP.changesCount),
     },
     f5: {
       name: 'F5 (DCT sequential)',
@@ -398,7 +404,7 @@ export function runAnalysis(
       bitsRequested: bitCount,
       bitsEmbedded: f5Bits,
       ...f5P,
-      label: detectabilityLabel(f5P.meanExposure, f5P.structHits, f5P.changesCount),
+      label: exposureBand(f5P.meanExposure, f5P.structHits, f5P.changesCount),
     },
     juniward: {
       name: 'J-UNIWARD (adaptive)',
@@ -410,7 +416,7 @@ export function runAnalysis(
       bitsRequested: bitCount,
       bitsEmbedded: bitCount,
       ...juwP,
-      label: detectabilityLabel(juwP.meanExposure, juwP.structHits, juwP.changesCount),
+      label: exposureBand(juwP.meanExposure, juwP.structHits, juwP.changesCount),
     },
   };
 }

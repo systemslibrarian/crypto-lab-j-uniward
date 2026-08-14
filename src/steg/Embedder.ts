@@ -57,6 +57,26 @@ export function selectCarriers(
   return carriers;
 }
 
+/**
+ * The carrier domain — every non-DC AC position in block-major order — with no
+ * reference to cost. Extraction needs exactly this: the keyed permutation is
+ * over the *structural* pool, so recovering carriers depends only on the block
+ * count, never on the (stego) cost values. `selectCarriers` above returns the
+ * same positions plus a cost each; extraction used to call it with a freshly
+ * recomputed stego cost map purely to obtain an array of the right length —
+ * an expensive false dependency (a full Daubechies-8 cost recompute per
+ * extract). This builds the positions directly.
+ */
+export function carrierDomain(blockCount: number): { blockIdx: number; zzIdx: number }[] {
+  const carriers: { blockIdx: number; zzIdx: number }[] = [];
+  for (let bi = 0; bi < blockCount; bi++) {
+    for (let zi = 1; zi < 64; zi++) { // skip DC (zi=0)
+      carriers.push({ blockIdx: bi, zzIdx: zi });
+    }
+  }
+  return carriers;
+}
+
 // ─── Count non-zero AC coefficients for bpnzac capacity reporting ─────────────
 
 export function countNZAC(dctCoeffs: Int16Array[]): number {

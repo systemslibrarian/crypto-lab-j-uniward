@@ -36,13 +36,14 @@ Built for both a newcomer meeting adaptive steganography for the first time and 
 
 **[systemslibrarian.github.io/crypto-lab-j-uniward](https://systemslibrarian.github.io/crypto-lab-j-uniward/)**
 
-Load a sample image or your own JPEG, enter a secret message and shared key, and embed with J-UNIWARD while a live panel compares LSB, F5, and J-UNIWARD at the same payload — showing where each method's changes land on the wavelet cost terrain, change-exposure bars, DCT histograms, and detectability labels. A 10× amplified difference map visualizes the edits, a carrier-density readout shows how much of the AC pool is non-zero, and a full embed → download → upload → extract round-trip recovers the message and checks its integrity tag.
+Load a sample image or your own JPEG, enter a secret message and shared key, and embed with J-UNIWARD while a live panel compares LSB, F5, and J-UNIWARD at the same payload — showing where each method's changes land on the wavelet cost terrain, change-exposure bars, DCT histograms, and low/medium/high objective-exposure bands. A 10× amplified difference map visualizes the edits, a carrier-density readout shows how much of the AC pool is non-zero, and a full embed → download → upload → extract round-trip recovers the message and checks its integrity tag.
 
 ## What Can Go Wrong
 
 - **Placement is a proxy, not a detector.** The analysis measures *where* changes land relative to texture — the quantity J-UNIWARD minimizes — which predicts resistance better than any single first-order test. It is not itself a steganalyzer; real-world detection (SRM, SRNet, XuNet) uses deep learning on rich feature sets.
 - **Higher payloads spend costlier coefficients.** As the rate rises the cheap textured coefficients run out, so the average change lands in a costlier spot — measured on `sample-grass.jpg`, J-UNIWARD's mean exposure climbs 7.1% → 11.7% → 17.0% → 21.8% → 27.7% from 0.10 to 0.50 bpnzac, and its worst single placement reaches the 96th percentile at 0.50. There is no universally safe payload; the panel shows the climb for your cover rather than naming a threshold.
 - **COM marker sideband.** Salt, rate, and payload length are stored in a JPEG COM marker for extraction. This metadata may be stripped by image pipelines or social media compression — and it makes any file this demo produces trivially identifiable by a metadata scanner, without touching a single DCT coefficient. It exists so the browser round trip is reproducible, not because it is covert.
+- **Fragile, not robust.** This is fragile steganography, not watermarking. The payload lives in the exact stego DCT coefficients, so recompression, quality-factor changes, resizing, cropping, rotation, or lossless JPEG optimization all alter those coefficients and break extraction. The recipient generally needs the original stego JPEG bytes.
 - **Not "undetectable," and not automatically the winner here.** Placement is what this lab measures, and on that measure F5's per-change average often beats J-UNIWARD's (see above). Real statistical security is established with trained detectors over image corpora, not by grading an algorithm against its own objective.
 - **Educational tool.** This is a teaching and portfolio demo, not suitable for adversarial environments.
 
@@ -85,7 +86,7 @@ Click **▶ Quick Demo** on the live site — it loads a sample image, prefills 
 | Payload presets | Conservative (0.10), Balanced (0.20), Aggressive (0.40) bpnzac |
 | Embedding summary | Payload size, actual rate, carriers used, distortion, metadata status |
 | Visual comparison | Side-by-side cover/stego + 10× amplified difference map |
-| Live steganalysis | Change-exposure bars (labelled *placement proxy — not a detector*), the measured ordering for the run, per-method carried-bit accounting, "where changes landed" map over the cost terrain, DCT histograms, detectability labels |
+| Live steganalysis | Change-exposure bars (labelled *placement proxy — not a detector*), the measured ordering for the run, per-method carried-bit accounting, "where changes landed" map over the cost terrain, DCT histograms, low/medium/high objective-exposure bands (not a detector verdict) |
 | Cost-mechanism probe | Click any block to see the ±1 wavelet ripple across the three directional subbands and the cover-magnitude denominator that makes texture cheap |
 | Jargon glossary | Hover/focus one-line plain-English glosses for bpnzac, DCT, wavelet, AC/DC, STC/Viterbi, shrinkage |
 | STC/Viterbi schematic | Stepped walkthrough of keyed spreading → candidate flip-sets → minimum-distortion choice |
