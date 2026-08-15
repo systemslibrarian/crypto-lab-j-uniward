@@ -1,8 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Default port is fixed so CI stays deterministic; E2E_PORT lets a local run
-// step around a port another lab's preview server already holds.
-const PORT = Number(process.env.E2E_PORT ?? 4220);
+// Default port is fixed so CI stays deterministic, and must be unique across
+// the crypto-lab fleet: `reuseExistingServer` will adopt whatever is already
+// listening, so two labs sharing a port means one silently scans the other's
+// page. 4220 collided with crypto-lab-hybrid-pqc. E2E_PORT remains as a local
+// escape hatch, but it is not the fix — a committed collision is.
+const PORT = Number(process.env.E2E_PORT ?? 4607);
 const BASE = '/crypto-lab-j-uniward/';
 
 export default defineConfig({
