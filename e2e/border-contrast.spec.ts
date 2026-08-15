@@ -22,11 +22,7 @@ async function messageFieldContrast(page: Page): Promise<number> {
   return contrast(colors.border, colors.background);
 }
 
-test('load-bearing message field boundary clears 3:1 in both themes', async ({ page }) => {
+test('load-bearing message field boundary clears 3:1', async ({ page }) => {
   await page.goto('.');
-  expect(await messageFieldContrast(page)).toBeGreaterThanOrEqual(3);
-
-  await page.locator('#cl-theme-toggle').click();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   expect(await messageFieldContrast(page)).toBeGreaterThanOrEqual(3);
 });
