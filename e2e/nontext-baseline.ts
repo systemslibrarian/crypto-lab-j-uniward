@@ -20,13 +20,10 @@ export const NONTEXT_BASELINE: Record<
   "control-boundary|a.cl-btn": { ratio: 2.45, required: 3.0, unverified: false },
   "control-boundary|button#cl-theme-toggle.cl-btn.cl-icon": { ratio: 2.45, required: 3.0, unverified: false },
   "control-boundary|button#copy-extracted.btn.btn-secondary.btn-sm": { ratio: 1.36, required: 3.0, unverified: false },
-  "control-boundary|button#dismiss-onboarding.btn.btn-ghost.btn-sm": { ratio: 1.0, required: 3.0, unverified: false },
   "control-boundary|button#load-sample.btn.btn-secondary.btn-sm": { ratio: 1.25, required: 3.0, unverified: false },
   "control-boundary|button#reset-btn.btn.btn-ghost.btn-sm": { ratio: 1.0, required: 3.0, unverified: false },
   "control-boundary|button#stc-next.btn.btn-secondary.btn-sm": { ratio: 1.36, required: 3.0, unverified: false },
   "control-boundary|button#stc-prev.btn.btn-secondary.btn-sm": { ratio: 1.36, required: 3.0, unverified: false },
-  "control-boundary|button#tab-embed.tab-btn.active": { ratio: 1.1, required: 3.0, unverified: false },
-  "control-boundary|button#tab-extract.tab-btn.active": { ratio: 1.1, required: 3.0, unverified: false },
   "control-boundary|button.method-tab": { ratio: 1.36, required: 3.0, unverified: false },
   "control-boundary|button.preset-btn": { ratio: 1.36, required: 3.0, unverified: false }
 };
