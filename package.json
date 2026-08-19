@@ -17,13 +17,13 @@
   },
   "dependencies": {
     "jpeg-js": "^0.4.4",
-    "js-sha3": "^0.9.3"
+    "js-sha3": "^0.13.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.62.1",
     "@types/jpeg-js": "^0.3.7",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   }
 }
