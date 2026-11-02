@@ -5,7 +5,7 @@
 import { state } from '../state/app-state.ts';
 import { decode, type JpegDecoded } from '../codec/JpegCodec.ts';
 import { extract } from '../steg/Extractor.ts';
-import { showAlert } from './renderers.ts';
+import { showAlert, showAlertHtml } from './renderers.ts';
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 
@@ -147,7 +147,7 @@ extractBtn.addEventListener('click', async () => {
     // structural carrier pool — it does not need the stego cost map, so none is
     // computed here (that recompute was a false dependency; see Extractor).
     const result = await extract(stegoD.dctCoeffs, key, extractSalt, extractRate, extractMsgLen);
-    showAlert(extractOutput,
+    showAlertHtml(extractOutput,
       `✓ Recovered (${result.bytesRecovered} bytes):<br><br><code class="extract-msg">${escapeHtml(result.message)}</code>`,
       'success',
     );

@@ -15,6 +15,7 @@ import { embed, selectCarriers, countNZAC, capacityBytes, usableCapacityBytes } 
 import { extract } from '../src/steg/Extractor.ts';
 import { runAnalysis } from '../src/analysis/StegAnalysis.ts';
 import { stcEmbedWithMatrix } from '../src/stc.ts';
+import { showAlert, showAlertHtml } from '../src/ui/renderers.ts';
 
 let passed = 0, failed = 0;
 function ok(name: string, cond: boolean, detail = '') {
@@ -372,6 +373,35 @@ async function main() {
       sweep.every((v, i) => i === 0 || v > sweep[i - 1]),
       sweep.map(v => (v * 100).toFixed(1) + '%').join(' → '));
     void means;
+  }
+
+  // ---- alert banners: text by default, markup only when asked for -----------
+  // The decoder builds its errors out of bytes taken from the uploaded JPEG, so
+  // the banner is reachable from a file a visitor chose. CodeQL named
+  // renderers.ts for both js/xss-through-dom and js/xss-through-exception.
+  // `showAlert` only touches className, textContent and classList, so a stub
+  // element tests it with no DOM: the browser suite cannot catch a regression
+  // here, because none of the real error strings contains a metacharacter.
+  {
+    const stub = () => ({
+      className: '', textContent: '', innerHTML: '',
+      classList: { removed: [] as string[], remove(c: string) { this.removed.push(c); } },
+    });
+    const payload = '<img src=x data-injected=yes>';
+
+    const a = stub();
+    showAlert(a as unknown as HTMLElement, payload, 'error');
+    ok('showAlert writes the message as text, not markup',
+      a.textContent === payload && a.innerHTML === '',
+      `textContent=${JSON.stringify(a.textContent)} innerHTML=${JSON.stringify(a.innerHTML)}`);
+    ok('showAlert still sets the type class and unhides',
+      a.className === 'alert alert-error' && a.classList.removed.includes('hidden'));
+
+    const b = stub();
+    showAlertHtml(b as unknown as HTMLElement, '<code>x</code>', 'success');
+    ok('showAlertHtml is the one that parses markup',
+      b.innerHTML === '<code>x</code>' && b.textContent === '',
+      `innerHTML=${JSON.stringify(b.innerHTML)}`);
   }
 
   console.log(`\n${failed === 0 ? '✓ all' : '✗'} ${passed} passed, ${failed} failed\n`);
