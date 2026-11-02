@@ -149,13 +149,38 @@ export function renderDiffMap(
   return { avgDiff: totalDiff / pixCount };
 }
 
-/** Show/hide an alert element with a message and type. */
+/**
+ * Show/hide an alert element with a message and type.
+ *
+ * The message is TEXT. Most callers pass an error string, and the decoder
+ * builds those out of bytes taken from the uploaded JPEG -- a rejected
+ * component id or sampling precision is interpolated straight into the
+ * Error -- so the banner is reachable from the contents of a file a visitor
+ * chose. CodeQL named this line for both js/xss-through-dom and
+ * js/xss-through-exception, by those two routes.
+ */
 export function showAlert(
   el: HTMLElement,
   msg: string,
   type: 'error' | 'success' | 'info' | 'warning' = 'info',
 ): void {
   el.className = `alert alert-${type}`;
-  el.innerHTML = msg;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+/**
+ * The same banner, for the one caller that really does pass markup: the
+ * extract panel wraps the recovered message in <code> and escapes it itself.
+ * Separate function rather than a flag, so the safe form is what a new caller
+ * reaches for and the markup form has to be asked for by name.
+ */
+export function showAlertHtml(
+  el: HTMLElement,
+  html: string,
+  type: 'error' | 'success' | 'info' | 'warning' = 'info',
+): void {
+  el.className = `alert alert-${type}`;
+  el.innerHTML = html;
   el.classList.remove('hidden');
 }
