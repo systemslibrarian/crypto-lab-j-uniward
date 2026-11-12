@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "jpeg-js": "^0.4.4",
-    "js-sha3": "^0.13.0"
+    "js-sha3": "^0.14.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
