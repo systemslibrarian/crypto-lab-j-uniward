@@ -10,7 +10,7 @@ import jpegjs from 'jpeg-js';
 
 import { readFileSync } from 'fs';
 import { decode, encode, forwardDCTQuantize } from '../src/codec/JpegCodec.ts';
-import { computeCostMatrix, computeCostMatrixSlow } from '../src/steg/WaveletCost.ts';
+import { computeCostMatrix, computeCostMatrixSlow, mirror } from '../src/steg/WaveletCost.ts';
 import { embed, selectCarriers, countNZAC, capacityBytes, usableCapacityBytes } from '../src/steg/Embedder.ts';
 import { extract } from '../src/steg/Extractor.ts';
 import { runAnalysis } from '../src/analysis/StegAnalysis.ts';
@@ -402,6 +402,28 @@ async function main() {
     ok('showAlertHtml is the one that parses markup',
       b.innerHTML === '<code>x</code>' && b.textContent === '',
       `innerHTML=${JSON.stringify(b.innerHTML)}`);
+  }
+
+  // ── Boundary extension: half-sample symmetry, and the comment says so ──────
+  // mirror() pads the way MATLAB's 'symmetric' mode does (the UNIWARD
+  // reference's padarray(…,'symmetric')): the edge sample is repeated, so
+  // index −1 maps to 0 and index n maps to n−1. Its comment used to call that
+  // "whole-sample symmetry", which is the OTHER convention (−1 → 1).
+  {
+    const n = 5;
+    const got = [-3, -2, -1, 0, 4, 5, 6, 7].map(i => mirror(i, n));
+    ok('mirror() is half-sample symmetric: … 2 1 0 | 0 1 2 3 4 | 4 3 2 …',
+      JSON.stringify(got) === JSON.stringify([2, 1, 0, 0, 4, 4, 3, 2]),
+      `got ${JSON.stringify(got)}`);
+    ok('mirror() repeats the edge sample (whole-sample symmetry would give 1)',
+      mirror(-1, n) === 0 && mirror(n, n) === n - 1);
+    ok('mirror() of a one-sample axis is always 0', mirror(-7, 1) === 0 && mirror(9, 1) === 0);
+    const src = readFileSync('src/steg/WaveletCost.ts', 'utf8');
+    const doc = src.slice(0, src.indexOf('export function mirror')).split('/**').pop() ?? '';
+    ok('mirror() is documented as half-sample symmetry (MATLAB \'symmetric\')',
+      /HALF-sample symmetry/.test(doc) && /MATLAB's 'symmetric'/.test(doc), doc.slice(0, 200));
+    ok('no comment calls the boundary rule whole-sample symmetry',
+      !/\(whole-sample symmetry\)/.test(src));
   }
 
   console.log(`\n${failed === 0 ? '✓ all' : '✗'} ${passed} passed, ${failed} failed\n`);

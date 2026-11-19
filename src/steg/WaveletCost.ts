@@ -113,8 +113,17 @@ const WET = 1e8;
 
 // ─── Mirror boundary extension ───────────────────────────────────────────────
 
-/** Reflect an out-of-range index back into [0, n) (whole-sample symmetry). */
-function mirror(i: number, n: number): number {
+/**
+ * Reflect an out-of-range index back into [0, n) with HALF-sample symmetry —
+ * MATLAB's 'symmetric' padding, which is what the UNIWARD reference
+ * implementation uses. The edge sample is repeated: for a row a b c d the
+ * extension reads … b a | a b c d | d c …, so mirror(−1) = 0 and
+ * mirror(−2) = 1. (Whole-sample symmetry, MATLAB's 'reflect', would not repeat
+ * the edge: … c b | a b c d | c b …, mirror(−1) = 1. This is not that.)
+ *
+ * Exported for the test that pins the mapping; nothing outside this file uses it.
+ */
+export function mirror(i: number, n: number): number {
   if (n === 1) return 0;
   const period = 2 * n;
   let m = ((i % period) + period) % period;
