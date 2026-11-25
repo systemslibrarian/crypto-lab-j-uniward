@@ -212,7 +212,7 @@ test('the capacity table is consistent with the NZAC count the page reported', a
   expect(msgBytes).toBeGreaterThan(0);
   expect(msgBytes).toBeLessThanOrEqual(Math.floor((nzac * rate) / 8) - 20);
   expect(await text(page, '#byte-count')).toBe(`${msgBytes} bytes`);
-  expect(await text(page, '#char-count')).toBe(`${message.length} chars`);
+  expect(await text(page, '#char-count')).toBe(`${Array.from(message).length} Unicode code points`);
   expect(await page.inputValue('#key-input')).not.toBe('');
 
   // The carrier badge must show the number that produced it, and that number must
@@ -504,8 +504,9 @@ test('extract recovers exactly the message that was embedded', async ({ page }) 
   test.setTimeout(240_000);
   await quickDemo(page);
 
-  const message = 'Recover me exactly.';
+  const message = '\uFEFF  Café 🔐  ';
   await embedMessage(page, message);
+  await expect(page.locator('#char-count')).toHaveText(`${Array.from(message).length} Unicode code points`);
 
   await page.click('#tab-extract');
   await page.fill('#extract-key-input', KEY);

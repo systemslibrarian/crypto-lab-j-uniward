@@ -127,7 +127,7 @@ export async function extract(
     throw new Error('Extraction failed: HMAC verification failed. Wrong key or corrupted stego image.');
   }
 
-  const decoder = new TextDecoder('utf-8', { fatal: false });
+  const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
   const message = decoder.decode(bytes);
 
   return {

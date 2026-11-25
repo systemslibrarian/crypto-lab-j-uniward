@@ -63,7 +63,7 @@ presetBtns.forEach(btn => {
 function updateCharCount(): void {
   const text = msgInput.value;
   const bytes = new TextEncoder().encode(text).length;
-  charCount.textContent = `${text.length} chars`;
+  charCount.textContent = `${Array.from(text).length} Unicode code points`;
   byteCount.textContent = `${bytes} bytes`;
 
   // Check capacity
@@ -162,7 +162,7 @@ embedBtn.addEventListener('click', async () => {
     return;
   }
 
-  const message = msgInput.value.trim();
+  const message = msgInput.value;
   const key     = keyInput.value.trim();
   const rate    = parseFloat(rateSlider.value);
 
