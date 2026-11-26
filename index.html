@@ -400,8 +400,8 @@
                 <h3>What will this panel show?</h3>
                 <dl class="explainer-list">
                   <dt>Change exposure</dt>
-                  <dd>Where each method's changes land, ranked against the J-UNIWARD cost map. 0% = hidden in
-                    the most textured coefficients; 100% = the smoothest, most conspicuous ones. Lower is stealthier.</dd>
+                  <dd>Each changed coefficient has a percentile rank on this image’s cost map. Low percentiles
+                    correspond to low costs. The displayed mean summarizes those ranks for the selected image.</dd>
                   <dt><span data-term="dc">DC</span> (flat-brightness) terms hit</dt>
                   <dd>The one structurally conspicuous edit: shifting a whole 8×8 block's brightness.
                     J-UNIWARD and F5 skip the DC term by construction; naïve LSB edits pixels, so its
@@ -497,8 +497,8 @@
                   DCT domain (LSB via a real forward DCT) and ranked against the cost map by where they land.</li>
               </ul>
               <p class="text-muted text-xs">
-                Placement predicts resistance to modern feature-based detectors better than any single
-                first-order test — but it does not prove undetectability under all attacks.
+                The placement score summarizes this image. To measure detection, a separate experiment
+                counts false alarms on original images and missed detections on modified images.
               </p>
             </div>
             <div class="info-card">

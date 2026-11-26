@@ -69,8 +69,8 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
     explainerPanel.classList.remove('hidden');
     statsContainer.innerHTML = `
       <p class="text-muted">
-        Load an image and embed a message to see where each method hides its
-        changes — and why adaptive placement is harder to detect.
+        The comparison shows where coefficients changed in the selected image.
+        The bars summarize placement. Measuring detection requires a separate test.
       </p>`;
     return;
   }
@@ -113,11 +113,11 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
       <span class="bar-badge" style="color:${color};">${s.label}</span>
     </div>
     ${shortfallNote(s)}
-    <p class="detector-note text-xs">What a real detector would see: ${detectorNote(m.key)}</p>`;
+    <p class="detector-note text-xs">Reading this comparison: ${detectorNote(m.key)}</p>`;
   }
 
-  html += `<p class="text-muted text-xs">Lower exposure = changes hidden in texture = harder to detect —
-    but this is where changes <em>land</em>, not the output of an SRM/SRNet detector.</p>
+  html += `<p class="text-muted text-xs">Mean exposure is the average cost percentile of the changed coefficients.
+    A bar at 20% describes placement. Measuring how often a detector finds modified images requires a separate classification experiment.</p>
     ${orderingNote(state.analysisResult)}
     </div>`;
 
@@ -174,16 +174,11 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
         role="img" aria-label="DCT coefficient histogram: after-embedding bars with the cover outline overlaid"></canvas>
       ${method === 'f5' ? `<p class="hist-callout" role="note">
         <span class="hist-callout-arrow" aria-hidden="true">▲</span>
-        <strong>The F5 tell:</strong> compare the solid bars to the faint <em>cover</em> outline.
-        <span data-term="shrinkage">Shrinkage</span> suppresses the <strong>±1</strong> buckets flanking
-        zero and piles coefficients up at 0 — a step near the center no cover image has. That deformation,
-        not any single p-value, is what a histogram attack reads.</p>` :
-        method === 'lsb' ? `<p class="hist-callout" role="note">
-        LSB spreads its ±1 changes evenly across the whole spectrum, so its histogram barely moves from the
-        cover outline — its tell is spatial (pixel pairs), not here.</p>` :
-        `<p class="hist-callout" role="note">
-        J-UNIWARD's adaptive placement leaves the coefficient histogram almost identical to the cover outline —
-        no <span data-term="shrinkage">shrinkage</span> step, few changes, all in busy texture.</p>`}
+        <strong>Compare the central bins.</strong> The bars count coefficients after the change.
+        The faint outline shows the original counts. <span data-term="shrinkage">Shrinkage</span>
+        can move a coefficient from −1 or +1 to zero. Read the actual heights for this image.</p>` :
+        `<p class="hist-callout" role="note">The bars show the current image and the faint outline shows the
+        original. Matching heights in a bin mean equal counts. Different coefficient positions can give the same count.</p>`}
     </div>`;
 
   statsContainer.innerHTML = html;
@@ -222,11 +217,11 @@ function methodLabel(method: 'lsb' | 'f5' | 'juniward'): string {
 function detectorNote(method: 'lsb' | 'f5' | 'juniward'): string {
   switch (method) {
     case 'lsb':
-      return 'a strong spatial pair-of-values signature plus disturbed DC/flat terms — flagged by even simple first-order tests.';
+      return 'a change count describes differences from the known original image. A detector would need to classify an image without that reference.';
     case 'f5':
-      return 'the shrinkage step in the ±1 histogram buckets, readable by classic F5/chi-square-style attacks.';
+      return 'the bars count coefficients in each bin. A difference from this particular original is descriptive evidence.';
     case 'juniward':
-      return 'little in first-order stats; modern SRM/SRNet feature detectors are still needed, and can succeed at high payloads.';
+      return 'similar histogram counts can come from different images. The chart gives no measured detection rate.';
   }
 }
 

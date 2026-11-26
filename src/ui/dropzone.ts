@@ -68,7 +68,8 @@ export async function loadImage(file: File): Promise<void> {
     isLoadingImage = true;
     embedBtn.disabled = true;
     loadSampleBtn && (loadSampleBtn.disabled = true);
-    imageInfo.innerHTML = '';
+    imageInfo.classList.remove('alert', 'alert-error');
+    imageInfo.replaceChildren();
     suitability.innerHTML = '';
     capacityTable.innerHTML = '';
     heatmapRow.classList.add('hidden');
@@ -161,7 +162,7 @@ export async function loadImage(file: File): Promise<void> {
 
     const doneStatus = document.createElement('div');
     doneStatus.className = 'alert alert-success';
-    doneStatus.textContent = `Image loaded. Cost map ready. (${file.name}, ${Math.round(file.size / 1024)} KB)`;
+    doneStatus.textContent = `Image loaded. Cost map ready. (${file.name}, ${file.size.toLocaleString()} bytes, ${(file.size / 1024).toFixed(2)} KiB)`;
     imageInfo.appendChild(doneStatus);
 
     heatmapRow.classList.remove('hidden');

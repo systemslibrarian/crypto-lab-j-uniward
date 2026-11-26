@@ -174,6 +174,22 @@ async function uploadStego(page: Page, bytes: Buffer, name = 'stego.jpg'): Promi
 
 // ─── 1. Loading: the capacity table is arithmetic on the page's own NZAC ──────
 
+test('a valid JPEG clears the previous upload error and shows its exact file size', async ({ page }) => {
+  await page.goto('./');
+  const file = page.locator('#file-input');
+  const info = page.locator('#image-info');
+  await file.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('fixture') });
+  await expect(info).toHaveClass(/alert-error/);
+
+  const photo = readFileSync('public/assets/sample.jpg');
+  await file.setInputFiles({ name: 'class-photo.jpg', mimeType: 'image/jpeg', buffer: photo });
+  const byteCount = await page.evaluate((n) => n.toLocaleString(), photo.byteLength);
+  await expect(info.locator('.alert-success')).toContainText(
+    `class-photo.jpg, ${byteCount} bytes, ${(photo.byteLength / 1024).toFixed(2)} KiB`,
+  );
+  await expect(info).not.toHaveClass(/alert-error/);
+});
+
 test('the capacity table is consistent with the NZAC count the page reported', async ({ page }) => {
   await quickDemo(page);
 

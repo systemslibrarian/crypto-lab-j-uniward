@@ -23,7 +23,7 @@ Built for both a newcomer meeting adaptive steganography for the first time and 
 2. **"Inside the cost" block probe** — click any 8×8 block on the cover image to nudge it by a +1 DCT step and watch the ripple hit the three undecimated wavelet detail subbands, with the *cover-magnitude denominator* shown next to each — so you *see* why busy texture yields low normalized cost. Computed live from the same Daubechies-8 transform the embedder uses; no faked numbers.
 3. **F5 shrinkage annotation** — the DCT histogram overlays the cover distribution and rings/arrows the suppressed ±1 buckets, pointing directly at the tell the demo names.
 4. **STC / Viterbi schematic** — a stepped walkthrough of the keyed permutation spreading the payload, then the trellis choosing the cheapest minimum-distortion flip-set for each 12-bit block of the message.
-5. **Placement-proxy framing** — the change-exposure bars are labelled *placement proxy — not a detector* at the point of use, each paired with a one-line "what a real detector would see" note, so a low bar is never misread as "provably safe."
+5. **Placement-proxy framing** — the change-exposure bars are labelled *placement proxy — not a detector* at the point of use, with a note on what the image comparison measures. The lab reports no detector error rate.
 
 ## When to Use It
 
@@ -82,7 +82,7 @@ Click **▶ Quick Demo** on the live site — it loads a sample image, prefills 
 
 | Feature | Description |
 |---------|-------------|
-| Adaptive placement | Changes land in high-texture DCT blocks — harder to detect |
+| Adaptive placement | The panel reports the cost percentiles of changed coefficients for the selected image |
 | Payload presets | Conservative (0.10), Balanced (0.20), Aggressive (0.40) bpnzac |
 | Embedding summary | Payload size, actual rate, carriers used, distortion, metadata status |
 | Visual comparison | Side-by-side cover/stego + 10× amplified difference map |
@@ -91,7 +91,7 @@ Click **▶ Quick Demo** on the live site — it loads a sample image, prefills 
 | Jargon glossary | Hover/focus one-line plain-English glosses for bpnzac, DCT, wavelet, AC/DC, STC/Viterbi, shrinkage |
 | STC/Viterbi schematic | Stepped walkthrough of keyed spreading → candidate flip-sets → minimum-distortion choice |
 | F5 shrinkage callout | Cover histogram overlaid with the ±1 shrinkage buckets ringed and arrowed |
-| Method explanations | Teaching text explains *why* each method is more or less detectable, with a "what a real detector would see" note |
+| Method explanations | Teaching text distinguishes measured differences in the selected image from a detector classification |
 | Carrier density | Non-zero AC count and share of the AC pool — the bpnzac denominator, printed with the badge it drove |
 | Round-trip verification | Embed → download → upload → extract with integrity check |
 
