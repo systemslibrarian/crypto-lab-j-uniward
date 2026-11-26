@@ -69,7 +69,7 @@ export function updateAnalysisPanel(method: 'lsb' | 'f5' | 'juniward'): void {
     explainerPanel.classList.remove('hidden');
     statsContainer.innerHTML = `
       <p class="text-muted">
-        The comparison shows where coefficients changed in the selected image.
+        Load an image and embed a message to see where coefficients changed in that image.
         The bars summarize placement. Measuring detection requires a separate test.
       </p>`;
     return;
